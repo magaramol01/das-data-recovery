@@ -1,5 +1,7 @@
 const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
+const fs = require('fs-extra');
+const path = require('path');
 const logger = require('../config/logger');
 
 /**
@@ -28,6 +30,31 @@ class SqliteAdapter {
         logger.debug('Already connected to database');
         return;
       }
+
+      // Create the sqlite directory if it doesn't exist
+      const dbDir = path.dirname(this.dbPath);
+      await fs.mkdirp(dbDir);
+
+      // Initialize database connection
+      this.db = await open({
+        filename: this.dbPath,
+        driver: sqlite3.Database
+      });
+
+      // Create tables if they don't exist
+      await this.db.exec(`
+        CREATE TABLE IF NOT EXISTS recovery (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          filename TEXT NOT NULL,
+          status TEXT NOT NULL,
+          error TEXT,
+          metadata TEXT
+        )
+      `);
+
+      this.isConnected = true;
+      logger.info('Successfully connected to SQLite database', { path: this.dbPath });
 
       logger.debug('Connecting to SQLite database', { path: this.dbPath });
 

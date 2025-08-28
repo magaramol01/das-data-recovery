@@ -41,7 +41,9 @@ class Application {
     logger.info('Environment configured', {
       env: process.env.NODE_ENV,
       workingDir: process.env.WORKING_DIR,
-      outputDir: process.env.OUTPUT_DIR
+      outputDir: process.env.OUTPUT_DIR,
+      dbPath: process.env.DB_PATH,
+      apiEndpoint: process.env.API_ENDPOINT
     });
   }
 

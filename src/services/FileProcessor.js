@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs-extra');
 const { promisify } = require('util');
-const glob = promisify(require('glob'));
+const { glob } = require('glob');
 const extract = require('extract-zip');
 const zlib = require('zlib');
 const gunzip = promisify(zlib.gunzip);
