@@ -1,9 +1,12 @@
+require('dotenv').config();
 const sqlite3 = require('sqlite3').verbose();
 
 class SqliteDbAdapter {
   constructor(dbPath) {
-    this.dbPath = dbPath;
+    this.dbPath = dbPath || process.env.DB_PATH;
     this.db = null;
+    this.timeout = parseInt(process.env.SQLITE_TIMEOUT) || 5000;
+    this.busyTimeout = parseInt(process.env.SQLITE_BUSY_TIMEOUT) || 5000;
   }
 
   connect() {
@@ -12,6 +15,11 @@ class SqliteDbAdapter {
         if (err) {
           reject(err);
         } else {
+          // Configure database settings
+          this.db.configure('busyTimeout', this.busyTimeout);
+          if (process.env.DEBUG === 'true') {
+            this.db.on('trace', (sql) => console.log('SQL:', sql));
+          }
           resolve();
         }
       });
