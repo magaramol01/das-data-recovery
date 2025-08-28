@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/magaramol01/das-data-recovery#readme",
   "dependencies": {
+    "archiver": "^7.0.1",
     "axios": "^1.11.0",
     "csv-parser": "^3.2.0",
     "dotenv": "^17.2.1",

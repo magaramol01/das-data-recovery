@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const { promisify } = require('util');
 const glob = require('glob');
 const extract = require('extract-zip');
+const archiver = require('archiver');
 const zlib = require('zlib');
 const gunzip = promisify(zlib.gunzip);
 const logger = require('../config/logger');
@@ -306,6 +307,112 @@ class FileProcessor {
         path: zipFilePath,
         error: error.message,
         stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Create a ZIP archive of the output directory
+   * @param {string} fromDate - Start date for archive name
+   * @param {string} toDate - End date for archive name
+   * @returns {Promise<string>} Path to created archive
+   */
+  async createArchive(fromDate, toDate) {
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const archiveName = `data-recovery_${fromDate}_to_${toDate}_${timestamp}.zip`;
+      const archivePath = path.join(this.archiveDir, archiveName);
+
+      logger.info('Starting archive creation', {
+        outputDir: this.outputDir,
+        archivePath,
+        fromDate,
+        toDate
+      });
+
+      // Ensure archive directory exists
+      await fs.ensureDir(this.archiveDir);
+
+      // Create archive
+      const archive = archiver('zip', {
+        zlib: { level: 9 } // Maximum compression
+      });
+
+      const output = fs.createWriteStream(archivePath);
+
+      return new Promise((resolve, reject) => {
+        output.on('close', () => {
+          logger.info('Archive created successfully', {
+            archivePath,
+            totalBytes: archive.pointer(),
+            finalSize: `${(archive.pointer() / 1024 / 1024).toFixed(2)} MB`
+          });
+          resolve(archivePath);
+        });
+
+        archive.on('warning', (err) => {
+          if (err.code === 'ENOENT') {
+            logger.warn('Archive warning', { error: err.message });
+          } else {
+            reject(err);
+          }
+        });
+
+        archive.on('error', (err) => {
+          reject(err);
+        });
+
+        // Pipe archive data to the file
+        archive.pipe(output);
+
+        // Add entire output directory to archive
+        archive.directory(this.outputDir, false);
+
+        // Finalize the archive
+        archive.finalize();
+      });
+
+    } catch (error) {
+      logger.error('Error creating archive', {
+        error: error.message,
+        stack: error.stack,
+        outputDir: this.outputDir,
+        archiveDir: this.archiveDir
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Clean output directory after archiving
+   * @returns {Promise<void>}
+   */
+  async cleanOutputDirectory() {
+    try {
+      logger.info('Cleaning output directory', {
+        outputDir: this.outputDir
+      });
+
+      // Get all files and directories in output directory
+      const items = await fs.readdir(this.outputDir);
+
+      for (const item of items) {
+        const itemPath = path.join(this.outputDir, item);
+        await fs.remove(itemPath);
+        logger.debug('Removed output item', { path: itemPath });
+      }
+
+      logger.info('Output directory cleaned successfully', {
+        outputDir: this.outputDir,
+        itemsRemoved: items.length
+      });
+
+    } catch (error) {
+      logger.error('Error cleaning output directory', {
+        error: error.message,
+        stack: error.stack,
+        outputDir: this.outputDir
       });
       throw error;
     }

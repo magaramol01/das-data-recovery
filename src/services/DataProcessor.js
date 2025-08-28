@@ -554,6 +554,30 @@ class DataProcessor {
   }
 
   /**
+   * Clear all data from the database (for post-archive cleanup)
+   * @returns {Promise<number>} Number of records deleted
+   */
+  async clearAllData() {
+    try {
+      logger.info('Starting complete database cleanup');
+
+      const result = await this.dbAdapter.run('DELETE FROM recovery');
+
+      logger.info('Complete database cleanup completed', {
+        recordsDeleted: result.changes
+      });
+
+      return result.changes;
+    } catch (error) {
+      logger.error('Error during complete database cleanup', {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Close the data processor and database connection
    * @returns {Promise<void>}
    */

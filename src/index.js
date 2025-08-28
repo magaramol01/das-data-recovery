@@ -544,6 +544,59 @@ class Application {
       throw error;
     }
   }
+
+  /**
+   * Archive output directory and clean up database and files
+   * @param {string} fromDate - Start date for archive name
+   * @param {string} toDate - End date for archive name
+   */
+  async archiveAndCleanup(fromDate, toDate) {
+    try {
+      logger.info('Starting archive and cleanup process', { fromDate, toDate });
+
+      // Step 1: Create archive of output directory
+      const archivePath = await this.fileProcessor.createArchive(fromDate, toDate);
+
+      logger.info('Archive created successfully', {
+        archivePath: archivePath,
+        outputDir: this.fileProcessor.outputDir
+      });
+
+      // Step 2: Clean the output directory
+      await this.fileProcessor.cleanOutputDirectory();
+
+      // Step 3: Clear all data from database
+      const recordsDeleted = await this.dataProcessor.clearAllData();
+
+      logger.info('Archive and cleanup process completed successfully', {
+        archivePath,
+        recordsDeleted,
+        fromDate,
+        toDate
+      });
+
+      console.log('\n=== ARCHIVE AND CLEANUP COMPLETED ===');
+      console.log(`Archive created: ${path.basename(archivePath)}`);
+      console.log(`Archive location: ${path.dirname(archivePath)}`);
+      console.log(`Output directory cleaned: ${this.fileProcessor.outputDir}`);
+      console.log(`Database records deleted: ${recordsDeleted}`);
+      console.log('=== END ARCHIVE AND CLEANUP ===\n');
+
+      return {
+        archivePath,
+        recordsDeleted
+      };
+
+    } catch (error) {
+      logger.error('Error during archive and cleanup process', {
+        error: error.message,
+        stack: error.stack,
+        fromDate,
+        toDate
+      });
+      throw error;
+    }
+  }
 }
 
 // Create and run the application
@@ -560,6 +613,10 @@ const main = async () => {
     }
 
     await app.processDateRange(fromDate, toDate);
+
+    // Archive output directory and clean up database and files
+    await app.archiveAndCleanup(fromDate, toDate);
+
     await app.cleanup();
 
     logger.info('Application completed successfully');
