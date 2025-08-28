@@ -226,11 +226,94 @@ class Application {
       extractedDirNames: extractedDirs.map(d => path.basename(d))
     });
 
-    // TODO: STEP 3 - Process CSV data (commented for now)
-    // TODO: STEP 4 - Store in database (commented for now)
-    // TODO: STEP 5 - Send to API (commented for now)
+    // STEP 3: Find and process all CSV files in output directory
+    logger.info('Starting CSV data processing', { date });
 
-    return copiedFiles.length + extractedDirs.length;
+    // Find all CSV files in output directory (including subdirectories)
+    const csvFiles = await this.findAllCsvFiles(this.fileProcessor.outputDir);
+
+    logger.info('Found CSV files for processing', {
+      date,
+      csvFileCount: csvFiles.length,
+      csvFiles: csvFiles.map(f => path.relative(this.fileProcessor.outputDir, f))
+    });
+
+    // Process CSV files one by one
+    let totalRecordsProcessed = 0;
+
+    if (csvFiles.length > 0) {
+      // Process each CSV file individually
+      for (let i = 0; i < csvFiles.length; i++) {
+        const csvFile = csvFiles[i];
+        const fileName = path.relative(this.fileProcessor.outputDir, csvFile);
+
+        try {
+          logger.info('Processing CSV file', {
+            date,
+            file: fileName,
+            progress: `${i + 1}/${csvFiles.length}`
+          });
+
+          // Process single CSV file
+          const recordsProcessed = await this.dataProcessor.processCsvFiles([csvFile]);
+          totalRecordsProcessed += recordsProcessed;
+
+          logger.info('CSV file processed successfully', {
+            date,
+            file: fileName,
+            recordCount: recordsProcessed,
+            progress: `${i + 1}/${csvFiles.length}`,
+            totalProcessedSoFar: totalRecordsProcessed
+          });
+        } catch (error) {
+          logger.error('Error processing CSV file', {
+            date,
+            file: fileName,
+            error: error.message,
+            progress: `${i + 1}/${csvFiles.length}`
+          });
+          // Continue processing other files even if one fails
+        }
+      }
+
+      logger.info('All CSV files processed', {
+        totalFiles: csvFiles.length,
+        totalRecordsProcessed,
+        date
+      });
+    }
+
+    logger.info('CSV data processing completed', {
+      date,
+      totalCsvFiles: csvFiles.length,
+      totalRecordsProcessed
+    });
+
+    // TODO: STEP 4 - Send to API (commented for now)
+
+    return {
+      filesProcessed: copiedFiles.length + extractedDirs.length,
+      csvFilesProcessed: csvFiles.length,
+      recordsProcessed: totalRecordsProcessed
+    };
+  }
+
+  /**
+   * Find all CSV files in a directory recursively
+   * @private
+   * @param {string} directory - Directory to search
+   * @returns {Promise<string[]>} Array of CSV file paths
+   */
+  async findAllCsvFiles(directory) {
+    try {
+      return await this.fileProcessor.findAllFiles(directory, ['.csv']);
+    } catch (error) {
+      logger.error('Error finding CSV files', {
+        directory,
+        error: error.message
+      });
+      return [];
+    }
   }
 
   /**

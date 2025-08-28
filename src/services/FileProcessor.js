@@ -313,7 +313,6 @@ class FileProcessor {
 
   /**
    * Find all files with specific extensions in a directory recursively
-   * @private
    * @param {string} dir - Directory to search
    * @param {string[]} extensions - File extensions to find
    * @returns {Promise<string[]>} Array of file paths
