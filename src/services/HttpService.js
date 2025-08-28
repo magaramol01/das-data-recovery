@@ -17,15 +17,15 @@ class HttpService {
   constructor(config) {
     this.endpoint = config.endpoint;
     this.apiKey = config.apiKey;
+    this.tenantId = config.tenantId;
     this.timeout = config.timeout || 30000;
     this.maxRetries = config.maxRetries || 3;
 
     this.client = axios.create({
-      baseURL: this.endpoint,
       timeout: this.timeout,
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'tenant-id': this.tenantId
       }
     });
 
@@ -52,14 +52,21 @@ class HttpService {
           requestId,
           attempt,
           endpoint: this.endpoint,
-          dataSize: JSON.stringify(data).length
+          dataSize: JSON.stringify(data).length,
+          headers: {
+            ...this.client.defaults.headers,
+            'X-Request-ID': requestId,
+            'request-id': requestId,
+            ...options.headers
+          }
         });
 
-        const response = await this.client.post('/', data, {
+        const response = await this.client.post(this.endpoint, data, {
           ...options,
           headers: {
             ...this.client.defaults.headers,
             'X-Request-ID': requestId,
+            'request-id': requestId,
             ...options.headers
           }
         });
@@ -188,12 +195,11 @@ class HttpService {
   }
 
   /**
-   * Generate unique request ID
-   * @private
-   * @returns {string} Unique request ID
+   * Generate a unique request ID
+   * @returns {string} Request ID
    */
   generateRequestId() {
-    return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `test-${Date.now()}`;
   }
 
   /**

@@ -77,6 +77,7 @@ class Application {
       this.httpService = new HttpService({
         endpoint: process.env.API_ENDPOINT,
         apiKey: process.env.API_KEY,
+        tenantId: process.env.TENANT_ID,
         timeout: parseInt(process.env.API_TIMEOUT) || 30000
       });
 
@@ -289,7 +290,116 @@ class Application {
       totalRecordsProcessed
     });
 
-    // TODO: STEP 4 - Send to API (commented for now)
+    // Step 4: Data Aggregation and API Preparation
+    logger.info('Starting data aggregation', { date });
+
+    const startTime = `${date}T00:00:00.000Z`;
+    const endTime = `${date}T23:59:59.999Z`;
+
+    try {
+      const aggregatedData = await this.dataProcessor.aggregateData(startTime, endTime);
+
+      logger.info('Data aggregation completed', {
+        date,
+        totalAggregatedRecords: aggregatedData.length,
+        timeRange: `${startTime} to ${endTime}`
+      });
+
+      // Console output for review
+      console.log('\n=== AGGREGATED DATA READY FOR TRANSMISSION ===');
+      console.log(`Date: ${date}`);
+      console.log(`Total time periods: ${aggregatedData.length}`);
+      console.log(`Data range: ${startTime} to ${endTime}`);
+      console.log('\nSample aggregated data (first 3 records):');
+
+      aggregatedData.slice(0, 3).forEach((record, index) => {
+        console.log(`\n--- Record ${index + 1} ---`);
+        console.log(`Timestamp: ${record.timestamp}`);
+        console.log(`Record Count: ${record.recordCount}`);
+        console.log(`Sample Tags: ${Object.keys(record.data).slice(0, 5).join(', ')}...`);
+        console.log(`Total Tags: ${Object.keys(record.data).length}`);
+      });
+
+      if (aggregatedData.length > 3) {
+        console.log(`\n... and ${aggregatedData.length - 3} more records`);
+      }
+
+      console.log('\n=== END AGGREGATED DATA ===\n');
+
+      // Step 5: Send aggregated data to API
+      logger.info('Starting API data transmission', {
+        date,
+        aggregatedRecords: aggregatedData.length,
+        totalSourceRecords: totalRecordsProcessed,
+        endpoint: process.env.API_ENDPOINT
+      });
+
+      try {
+        // Prepare data payload for API
+        const apiPayload = {
+          date: date,
+          source: 'das-data-recovery',
+          version: '2.0',
+          metadata: {
+            totalSourceRecords: totalRecordsProcessed,
+            aggregatedRecords: aggregatedData.length,
+            processedAt: new Date().toISOString(),
+            timeRange: `${startTime} to ${endTime}`,
+            tags: ['FAEIN01', 'FAEIN02', 'FAEIN03', 'FAEIN04', 'FAEIN05', 'FAEIN06', 'FAEIN07', 'FAEIN08', 'FAEIN09', 'FAEIN11', 'FAEIN12', 'FAEIN14', 'FAEIN15', 'FAEIN17']
+          },
+          data: aggregatedData
+        };
+
+        // Send data to API endpoint
+        const response = await this.httpService.sendData(apiPayload);
+
+        logger.info('API transmission completed successfully', {
+          date,
+          response: response,
+          recordsSent: aggregatedData.length,
+          payloadSize: JSON.stringify(apiPayload).length
+        });
+
+        console.log('\n=== API TRANSMISSION SUCCESS ===');
+        console.log(`Date: ${date}`);
+        console.log(`Records sent: ${aggregatedData.length}`);
+        console.log(`Endpoint: ${process.env.API_ENDPOINT}`);
+        console.log(`Response status: Success`);
+        console.log('=== END API TRANSMISSION ===\n');
+
+      } catch (error) {
+        logger.error('API transmission failed', {
+          date,
+          error: error.message,
+          stack: error.stack,
+          endpoint: process.env.API_ENDPOINT,
+          recordsCount: aggregatedData.length
+        });
+
+        console.log('\n=== API TRANSMISSION FAILED ===');
+        console.log(`Date: ${date}`);
+        console.log(`Records attempted: ${aggregatedData.length}`);
+        console.log(`Endpoint: ${process.env.API_ENDPOINT}`);
+        console.log(`Error: ${error.message}`);
+        console.log('=== END API TRANSMISSION ===\n');
+
+        // Don't throw error - log and continue
+      }
+
+      logger.info('Data ready for API transmission', {
+        date,
+        aggregatedRecords: aggregatedData.length,
+        totalSourceRecords: totalRecordsProcessed
+      });
+
+    } catch (error) {
+      logger.error('Error during data aggregation', {
+        date,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
 
     return {
       filesProcessed: copiedFiles.length + extractedDirs.length,
