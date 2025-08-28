@@ -35,6 +35,8 @@ class SqliteAdapter {
       const dbDir = path.dirname(this.dbPath);
       await fs.mkdirp(dbDir);
 
+      logger.debug('Connecting to SQLite database', { path: this.dbPath });
+
       // Initialize database connection
       this.db = await open({
         filename: this.dbPath,
@@ -54,16 +56,6 @@ class SqliteAdapter {
         CREATE INDEX IF NOT EXISTS idx_recovery_timestamp ON recovery(timestamp);
         CREATE INDEX IF NOT EXISTS idx_recovery_tagname ON recovery(tagName);
       `);
-
-      this.isConnected = true;
-      logger.info('Successfully connected to SQLite database', { path: this.dbPath });
-
-      logger.debug('Connecting to SQLite database', { path: this.dbPath });
-
-      this.db = await open({
-        filename: this.dbPath,
-        driver: sqlite3.Database
-      });
 
       // Enable foreign keys
       await this.db.run('PRAGMA foreign_keys = ON');
@@ -183,8 +175,14 @@ class SqliteAdapter {
   async beginTransaction() {
     try {
       await this.ensureConnection();
-      await this.db.run('BEGIN TRANSACTION');
-      logger.debug('Transaction started');
+      const startTime = Date.now();
+      const result = await this.db.run('BEGIN EXCLUSIVE TRANSACTION');
+      const duration = Date.now() - startTime;
+
+      logger.debug('Transaction started', {
+        result,
+        duration
+      });
     } catch (error) {
       logger.error('Failed to start transaction', {
         error: error.message,
@@ -200,13 +198,29 @@ class SqliteAdapter {
    */
   async commit() {
     try {
+      const startTime = Date.now();
       await this.db.run('COMMIT');
-      logger.debug('Transaction committed');
+      const duration = Date.now() - startTime;
+
+      logger.debug('Transaction committed', {
+        duration
+      });
     } catch (error) {
       logger.error('Failed to commit transaction', {
         error: error.message,
         stack: error.stack
       });
+
+      // Try to rollback if commit fails
+      try {
+        await this.rollback();
+      } catch (rollbackError) {
+        logger.error('Failed to rollback after commit failure', {
+          error: rollbackError.message,
+          stack: rollbackError.stack
+        });
+      }
+
       throw error;
     }
   }
@@ -217,8 +231,13 @@ class SqliteAdapter {
    */
   async rollback() {
     try {
+      const startTime = Date.now();
       await this.db.run('ROLLBACK');
-      logger.debug('Transaction rolled back');
+      const duration = Date.now() - startTime;
+
+      logger.debug('Transaction rolled back', {
+        duration
+      });
     } catch (error) {
       logger.error('Failed to rollback transaction', {
         error: error.message,

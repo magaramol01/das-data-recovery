@@ -102,20 +102,34 @@ class DataProcessor {
   async processSingleCsvFile(filePath) {
     let recordCount = 0;
     let batch = [];
+    let currentTransaction = null;
+
+    logger.debug('Starting CSV processing', { filePath });
 
     try {
-      await this.dbAdapter.beginTransaction();
-
       await pipeline(
         fs.createReadStream(filePath),
         csv(),
         async function* (source) {
+          // Begin transaction for initial batch
+          await this.dbAdapter.beginTransaction();
+          currentTransaction = true;
+
           for await (const record of source) {
-            batch.push(this.transformRecord(record));
+            logger.debug('Processing record', { record });
+            const transformed = this.transformRecord(record);
+            logger.debug('Transformed record', { transformed });
+            batch.push(transformed);
             recordCount++;
 
             if (batch.length >= this.batchSize) {
+              logger.debug('Processing batch', { batchSize: batch.length });
               await this.insertBatch(batch);
+
+              // Commit current batch and begin new transaction
+              await this.dbAdapter.commit();
+              await this.dbAdapter.beginTransaction();
+
               yield batch.length;
               batch = [];
             }
@@ -123,13 +137,18 @@ class DataProcessor {
 
           // Insert remaining records
           if (batch.length > 0) {
+            logger.debug('Processing final batch', { batchSize: batch.length });
             await this.insertBatch(batch);
+            await this.dbAdapter.commit();
+            currentTransaction = false;
             yield batch.length;
+          } else if (currentTransaction) {
+            // If no remaining records but transaction is open, commit it
+            await this.dbAdapter.commit();
+            currentTransaction = false;
           }
         }.bind(this)
       );
-
-      await this.dbAdapter.commit();
 
       logger.info('CSV file processed successfully', {
         file: filePath,
@@ -138,7 +157,19 @@ class DataProcessor {
 
       return recordCount;
     } catch (error) {
-      await this.dbAdapter.rollback();
+      // Ensure we rollback if there's an active transaction
+      if (currentTransaction) {
+        try {
+          await this.dbAdapter.rollback();
+        } catch (rollbackError) {
+          logger.error('Error rolling back transaction', {
+            file: filePath,
+            error: rollbackError.message,
+            stack: rollbackError.stack
+          });
+        }
+      }
+
       logger.error('Error processing CSV file', {
         file: filePath,
         error: error.message,
@@ -190,18 +221,45 @@ class DataProcessor {
    * @returns {Promise<void>}
    */
   async insertBatch(batch) {
+    if (batch.length === 0) {
+      return;
+    }
+
     const query = `
             INSERT INTO recovery (timestamp, tagName, value, metadata)
             VALUES (?, ?, ?, ?)
         `;
 
+    logger.debug('Processing batch', {
+      batchSize: batch.length,
+      firstRecord: batch[0],
+      lastRecord: batch[batch.length - 1]
+    });
+
     for (const record of batch) {
-      await this.dbAdapter.run(query, [
+      const params = [
         record.timestamp,
         record.tagName,
         record.value,
         record.metadata
-      ]);
+      ];
+
+      try {
+        const result = await this.dbAdapter.run(query, params);
+        logger.debug('Insert result', {
+          changes: result?.changes,
+          lastID: result?.lastID,
+          timestamp: record.timestamp,
+          tagName: record.tagName
+        });
+      } catch (error) {
+        logger.error('Failed to insert record', {
+          error: error.message,
+          record,
+          stack: error.stack
+        });
+        throw error;
+      }
     }
   }
 
@@ -288,7 +346,10 @@ class DataProcessor {
    */
   async close() {
     try {
-      await this.dbAdapter.close();
+      if (this.dbAdapter) {
+        await this.dbAdapter.close();
+        logger.info('Database connection closed successfully');
+      }
       logger.info('DataProcessor closed successfully');
     } catch (error) {
       logger.error('Error closing DataProcessor', {
