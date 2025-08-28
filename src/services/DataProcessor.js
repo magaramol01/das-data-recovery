@@ -3,6 +3,7 @@ const SqliteAdapter = require('../db/SqliteAdapter');
 const { pipeline } = require('stream/promises');
 const csv = require('csv-parser');
 const fs = require('fs-extra');
+const path = require('path');
 
 /**
  * DataProcessor Service
@@ -19,7 +20,8 @@ class DataProcessor {
   constructor(config) {
     this.dbPath = config.dbPath;
     this.mappingName = config.mappingName;
-    this.batchSize = config.batchSize || 100;
+    this.batchSize = config.batchSize || 5000; // Increased from 100 to 5000
+    this.maxConcurrency = config.maxConcurrency || 4; // Number of concurrent CSV processors
     this.dbAdapter = new SqliteAdapter(this.dbPath);
   }
 
@@ -65,33 +67,176 @@ class DataProcessor {
   }
 
   /**
-   * Process CSV files and store data in SQLite
+   * Process CSV files and store data in SQLite with parallel processing
    * @param {string[]} filePaths - Array of CSV file paths to process
    * @returns {Promise<number>} Number of records processed
    */
   async processCsvFiles(filePaths) {
+    if (!filePaths || filePaths.length === 0) {
+      return 0;
+    }
+
     let totalProcessed = 0;
 
     try {
-      for (const filePath of filePaths) {
-        logger.info('Processing CSV file', { file: filePath, progress: `${totalProcessed}` });
-        const processed = await this.processSingleCsvFile(filePath);
-        totalProcessed += processed;
-        logger.info('CSV file completed', {
-          file: filePath,
-          recordsProcessed: processed,
-          totalProcessed
-        });
-      }
+      logger.info('Starting parallel CSV processing', {
+        fileCount: filePaths.length,
+        maxConcurrency: this.maxConcurrency,
+        actualConcurrency: Math.min(this.maxConcurrency, filePaths.length)
+      });
+
+      // Process files in parallel with limited concurrency
+      let fileIndex = 0;
+      const processNextFile = async () => {
+        const currentIndex = fileIndex++;
+        if (currentIndex >= filePaths.length) {
+          return null; // Signal that no more files to process
+        }
+
+        const filePath = filePaths[currentIndex];
+
+        try {
+          logger.info('Processing CSV file', {
+            file: path.basename(filePath),
+            progress: `${currentIndex + 1}/${filePaths.length}`
+          });
+
+          const processed = await this.processSingleCsvFileOptimized(filePath);
+
+          logger.info('CSV file completed', {
+            file: path.basename(filePath),
+            recordsProcessed: processed,
+            progress: `${currentIndex + 1}/${filePaths.length}`
+          });
+
+          return processed;
+        } catch (error) {
+          logger.error('Error processing CSV file', {
+            file: path.basename(filePath),
+            error: error.message,
+            progress: `${currentIndex + 1}/${filePaths.length}`
+          });
+          return 0; // Return 0 for failed files, but continue processing
+        }
+      };
+
+      // Start concurrent processors
+      const concurrentProcessors = Math.min(this.maxConcurrency, filePaths.length);
+      const processors = Array.from({ length: concurrentProcessors }, () =>
+        (async () => {
+          let totalProcessedByWorker = 0;
+          let result;
+
+          // Keep processing files until no more files available
+          while ((result = await processNextFile()) !== null) {
+            totalProcessedByWorker += result;
+          }
+
+          return totalProcessedByWorker;
+        })()
+      );      // Wait for all processors to complete
+      const results = await Promise.all(processors);
+      totalProcessed = results.reduce((sum, count) => sum + count, 0);
 
       logger.info('All CSV processing completed', {
         filesProcessed: filePaths.length,
-        totalRecords: totalProcessed
+        totalRecords: totalProcessed,
+        avgRecordsPerFile: Math.round(totalProcessed / filePaths.length)
       });
 
       return totalProcessed;
     } catch (error) {
-      logger.error('Error processing CSV files', {
+      logger.error('Error in parallel CSV processing', {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Simple parallel CSV processing with Promise.all and chunking
+   * Alternative implementation that's easier to understand and debug
+   * @param {string[]} filePaths - Array of CSV file paths to process
+   * @returns {Promise<number>} Number of records processed
+   */
+  async processCsvFilesSimple(filePaths) {
+    if (!filePaths || filePaths.length === 0) {
+      return 0;
+    }
+
+    try {
+      logger.info('Starting simple parallel CSV processing', {
+        fileCount: filePaths.length,
+        maxConcurrency: this.maxConcurrency
+      });
+
+      let totalProcessed = 0;
+
+      // Process files in chunks to limit concurrency
+      for (let i = 0; i < filePaths.length; i += this.maxConcurrency) {
+        const chunk = filePaths.slice(i, i + this.maxConcurrency);
+
+        logger.info('Processing file chunk', {
+          chunkSize: chunk.length,
+          progress: `${Math.min(i + this.maxConcurrency, filePaths.length)}/${filePaths.length}`,
+          files: chunk.map(f => path.basename(f))
+        });
+
+        // Process chunk in parallel
+        const chunkResults = await Promise.allSettled(
+          chunk.map(async (filePath, index) => {
+            const globalIndex = i + index;
+            try {
+              logger.info('Processing CSV file', {
+                file: path.basename(filePath),
+                progress: `${globalIndex + 1}/${filePaths.length}`
+              });
+
+              const processed = await this.processSingleCsvFileOptimized(filePath);
+
+              logger.info('CSV file completed', {
+                file: path.basename(filePath),
+                recordsProcessed: processed,
+                progress: `${globalIndex + 1}/${filePaths.length}`
+              });
+
+              return processed;
+            } catch (error) {
+              logger.error('Error processing CSV file', {
+                file: path.basename(filePath),
+                error: error.message,
+                progress: `${globalIndex + 1}/${filePaths.length}`
+              });
+              return 0;
+            }
+          })
+        );
+
+        // Sum up results from this chunk
+        const chunkTotal = chunkResults.reduce((sum, result) => {
+          return sum + (result.status === 'fulfilled' ? result.value : 0);
+        }, 0);
+
+        totalProcessed += chunkTotal;
+
+        logger.info('Chunk processing completed', {
+          chunkSize: chunk.length,
+          chunkRecords: chunkTotal,
+          totalSoFar: totalProcessed,
+          progress: `${Math.min(i + this.maxConcurrency, filePaths.length)}/${filePaths.length}`
+        });
+      }
+
+      logger.info('Simple parallel CSV processing completed', {
+        filesProcessed: filePaths.length,
+        totalRecords: totalProcessed,
+        avgRecordsPerFile: filePaths.length > 0 ? Math.round(totalProcessed / filePaths.length) : 0
+      });
+
+      return totalProcessed;
+    } catch (error) {
+      logger.error('Error in simple parallel CSV processing', {
         error: error.message,
         stack: error.stack
       });
@@ -172,6 +317,82 @@ class DataProcessor {
   }
 
   /**
+   * Optimized CSV file processing with bulk database inserts
+   * Uses a single database connection and transaction per file
+   * @private
+   * @param {string} filePath - Path to CSV file
+   * @returns {Promise<number>} Number of records processed
+   */
+  async processSingleCsvFileOptimized(filePath) {
+    let recordCount = 0;
+    const allRecords = [];
+
+    const startTime = Date.now();
+    logger.debug('Starting optimized CSV processing', { filePath });
+
+    try {
+      // Read and parse entire CSV file into memory (streaming with accumulation)
+      await pipeline(
+        fs.createReadStream(filePath),
+        csv(),
+        async (source) => {
+          for await (const record of source) {
+            const transformed = this.transformRecord(record);
+            if (transformed) {
+              allRecords.push([
+                transformed.timestamp,
+                transformed.tagName,
+                transformed.value,
+                transformed.metadata || null
+              ]);
+              recordCount++;
+            }
+          }
+        }
+      );
+
+      // Bulk insert all records at once if we have any
+      if (allRecords.length > 0) {
+        logger.debug('Starting bulk database insert', {
+          file: path.basename(filePath),
+          recordCount: allRecords.length
+        });
+
+        // Use a dedicated database adapter instance for each file to avoid transaction conflicts
+        const fileDbAdapter = new SqliteAdapter(this.dbAdapter.dbPath);
+        await fileDbAdapter.connect();
+
+        try {
+          await fileDbAdapter.batchInsert(
+            'recovery',
+            ['timestamp', 'tagName', 'value', 'metadata'],
+            allRecords,
+            this.batchSize
+          );
+        } finally {
+          await fileDbAdapter.close();
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      logger.info('Optimized CSV file processed successfully', {
+        file: path.basename(filePath),
+        recordsProcessed: recordCount,
+        duration,
+        recordsPerSecond: recordCount > 0 ? Math.round(recordCount / (duration / 1000)) : 0
+      });
+
+      return recordCount;
+    } catch (error) {
+      logger.error('Error in optimized CSV processing', {
+        file: path.basename(filePath),
+        error: error.message,
+        recordsProcessed: recordCount,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }  /**
    * Transform a record before insertion
    * @private
    * @param {Object} record - Raw record from CSV

@@ -45,11 +45,12 @@ const LOG_LEVELS = {
 };
 
 const BATCH_SIZES = {
-  TINY: 10,
-  SMALL: 50,
-  MEDIUM: 100,
-  LARGE: 500,
-  HUGE: 1000
+  TINY: 100,
+  SMALL: 500,
+  MEDIUM: 2000,
+  LARGE: 5000,
+  HUGE: 10000,
+  MASSIVE: 25000
 };
 
 const DEFAULT_CONFIG = {

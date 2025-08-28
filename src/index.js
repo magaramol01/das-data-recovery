@@ -59,11 +59,12 @@ class Application {
         archiveDir: process.env.ARCHIVE_DIR || path.join(process.env.OUTPUT_DIR, 'archive')
       });
 
-      // Initialize Data Processor
+      // Initialize Data Processor with optimized settings
       this.dataProcessor = new DataProcessor({
         dbPath: process.env.DB_PATH,
         mappingName: process.env.MAPPING_NAME,
-        batchSize: parseInt(process.env.BATCH_SIZE) || BATCH_SIZES.MEDIUM
+        batchSize: parseInt(process.env.BATCH_SIZE) || BATCH_SIZES.LARGE, // Increased default
+        maxConcurrency: parseInt(process.env.MAX_CONCURRENCY) || 4
       });
 
       // Initialize Queue Service
@@ -239,49 +240,38 @@ class Application {
       csvFiles: csvFiles.map(f => path.relative(this.fileProcessor.outputDir, f))
     });
 
-    // Process CSV files one by one
+    // Process CSV files in parallel for better performance
     let totalRecordsProcessed = 0;
 
     if (csvFiles.length > 0) {
-      // Process each CSV file individually
-      for (let i = 0; i < csvFiles.length; i++) {
-        const csvFile = csvFiles[i];
-        const fileName = path.relative(this.fileProcessor.outputDir, csvFile);
-
-        try {
-          logger.info('Processing CSV file', {
-            date,
-            file: fileName,
-            progress: `${i + 1}/${csvFiles.length}`
-          });
-
-          // Process single CSV file
-          const recordsProcessed = await this.dataProcessor.processCsvFiles([csvFile]);
-          totalRecordsProcessed += recordsProcessed;
-
-          logger.info('CSV file processed successfully', {
-            date,
-            file: fileName,
-            recordCount: recordsProcessed,
-            progress: `${i + 1}/${csvFiles.length}`,
-            totalProcessedSoFar: totalRecordsProcessed
-          });
-        } catch (error) {
-          logger.error('Error processing CSV file', {
-            date,
-            file: fileName,
-            error: error.message,
-            progress: `${i + 1}/${csvFiles.length}`
-          });
-          // Continue processing other files even if one fails
-        }
-      }
-
-      logger.info('All CSV files processed', {
-        totalFiles: csvFiles.length,
-        totalRecordsProcessed,
-        date
+      logger.info('Starting parallel CSV processing', {
+        date,
+        totalFiles: csvFiles.length
       });
+
+      try {
+        // Process all CSV files in parallel with the DataProcessor's built-in concurrency control
+        logger.info('Starting CSV file processing with simple parallel method', {
+          date,
+          totalFiles: csvFiles.length,
+          maxConcurrency: this.dataProcessor.maxConcurrency
+        });
+
+        totalRecordsProcessed = await this.dataProcessor.processCsvFilesSimple(csvFiles);
+
+        logger.info('All CSV files processed successfully', {
+          date,
+          totalFiles: csvFiles.length,
+          totalRecordsProcessed
+        });
+      } catch (error) {
+        logger.error('Error during parallel CSV processing', {
+          date,
+          error: error.message,
+          totalFiles: csvFiles.length
+        });
+        // Try to continue with aggregation even if some files failed
+      }
     }
 
     logger.info('CSV data processing completed', {

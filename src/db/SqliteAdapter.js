@@ -60,8 +60,17 @@ class SqliteAdapter {
       // Enable foreign keys
       await this.db.run('PRAGMA foreign_keys = ON');
 
+      // Performance optimizations
+      await this.db.run('PRAGMA journal_mode = WAL'); // Write-Ahead Logging for better concurrency
+      await this.db.run('PRAGMA synchronous = NORMAL'); // Reduce sync overhead
+      await this.db.run('PRAGMA cache_size = -64000'); // 64MB cache (negative = KB)
+      await this.db.run('PRAGMA temp_store = MEMORY'); // Store temp tables in memory
+      await this.db.run('PRAGMA mmap_size = 268435456'); // 256MB memory-mapped I/O
+      await this.db.run('PRAGMA page_size = 4096'); // Optimal page size
+      await this.db.run('PRAGMA auto_vacuum = INCREMENTAL'); // Incremental vacuum
+
       this.isConnected = true;
-      logger.info('Successfully connected to SQLite database', { path: this.dbPath });
+      logger.info('Successfully connected to SQLite database with performance optimizations', { path: this.dbPath });
     } catch (error) {
       logger.error('Failed to connect to SQLite database', {
         error: error.message,
@@ -272,6 +281,140 @@ class SqliteAdapter {
     } catch (error) {
       logger.error('Failed to close database connection', {
         error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Bulk insert records using prepared statements for better performance
+   * @param {string} table - Table name
+   * @param {Array} columns - Column names
+   * @param {Array} records - Array of record arrays
+   * @returns {Promise<number>} Number of records inserted
+   */
+  async bulkInsert(table, columns, records) {
+    if (!records || records.length === 0) {
+      return 0;
+    }
+
+    try {
+      await this.ensureConnection();
+      const startTime = Date.now();
+
+      // Create prepared statement
+      const placeholders = columns.map(() => '?').join(', ');
+      const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
+
+      const stmt = await this.db.prepare(sql);
+
+      let insertedCount = 0;
+
+      // Use a single transaction for all inserts
+      await this.beginTransaction();
+
+      try {
+        for (const record of records) {
+          await stmt.run(record);
+          insertedCount++;
+        }
+
+        await this.commit();
+        await stmt.finalize();
+
+        const duration = Date.now() - startTime;
+        logger.info('Bulk insert completed successfully', {
+          table,
+          recordCount: insertedCount,
+          duration,
+          recordsPerSecond: Math.round(insertedCount / (duration / 1000))
+        });
+
+        return insertedCount;
+      } catch (error) {
+        await this.rollback();
+        await stmt.finalize();
+        throw error;
+      }
+    } catch (error) {
+      logger.error('Bulk insert failed', {
+        error: error.message,
+        table,
+        recordCount: records?.length || 0,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Batch insert records using single INSERT statement with multiple VALUES
+   * Most efficient for large datasets
+   * @param {string} table - Table name
+   * @param {Array} columns - Column names
+   * @param {Array} records - Array of record arrays
+   * @param {number} batchSize - Number of records per batch (default: 5000)
+   * @returns {Promise<number>} Number of records inserted
+   */
+  async batchInsert(table, columns, records, batchSize = 5000) {
+    if (!records || records.length === 0) {
+      return 0;
+    }
+
+    try {
+      await this.ensureConnection();
+      const startTime = Date.now();
+      let totalInserted = 0;
+
+      await this.beginTransaction();
+
+      try {
+        // Process records in batches
+        for (let i = 0; i < records.length; i += batchSize) {
+          const batch = records.slice(i, i + batchSize);
+          const valuePlaceholders = batch.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ');
+          const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES ${valuePlaceholders}`;
+
+          // Flatten the batch for parameters
+          const params = batch.flat();
+
+          await this.db.run(sql, params);
+          totalInserted += batch.length;
+
+          // Log progress for large batches
+          if (records.length > 10000) {
+            logger.debug('Batch insert progress', {
+              table,
+              processed: totalInserted,
+              total: records.length,
+              progress: `${Math.round((totalInserted / records.length) * 100)}%`
+            });
+          }
+        }
+
+        await this.commit();
+
+        const duration = Date.now() - startTime;
+        logger.info('Batch insert completed successfully', {
+          table,
+          recordCount: totalInserted,
+          batchSize,
+          duration,
+          recordsPerSecond: Math.round(totalInserted / (duration / 1000))
+        });
+
+        return totalInserted;
+      } catch (error) {
+        await this.rollback();
+        throw error;
+      }
+    } catch (error) {
+      logger.error('Batch insert failed', {
+        error: error.message,
+        table,
+        recordCount: records?.length || 0,
+        batchSize,
         stack: error.stack
       });
       throw error;
