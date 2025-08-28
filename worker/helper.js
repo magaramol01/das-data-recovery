@@ -7,6 +7,8 @@ const extract = require('extract-zip');
 const zlib = require('zlib');
 const gunzip = promisify(zlib.gunzip);
 const pipeline = promisify(require('stream').pipeline);
+const csv = require('csv-parser');
+const SqliteDbAdapter = require('../db/sqlLiteDbAdaptor');
 
 const FROM = process.env.FROM;
 const TO = process.env.TO;
@@ -140,6 +142,85 @@ async function processDateFiles(date, workingDir, outputDir, concurrencyLimit = 
 }
 
 /**
+ * Process CSV files and store data in SQLite
+ * @param {string} outputDir - Directory containing the CSV files
+ * @returns {Promise<void>}
+ */
+async function processCsvFiles(outputDir) {
+  const dbAdapter = new SqliteDbAdapter();
+  try {
+    await dbAdapter.connect();
+
+    // Create table if not exists
+    await dbAdapter.run(`
+      CREATE TABLE IF NOT EXISTS recovery (
+        timestamp TEXT,
+        tagName TEXT,
+        value REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Get all CSV files in the output directory
+    const files = await glob(path.join(outputDir, '*.csv'));
+    logger.info('Found CSV files to process', { count: files.length });
+
+    for (const file of files) {
+      const records = [];
+      let rowCount = 0;
+
+      await new Promise((resolve, reject) => {
+        fs.createReadStream(file)
+          .pipe(csv({
+            skipLines: 0,
+            headers: ['Timestamp', 'TagName', 'Value']
+          }))
+          .on('data', (row) => {
+            rowCount++;
+            if (row.Timestamp && row.TagName && row.Value) {
+              records.push([
+                row.Timestamp.trim(),
+                row.TagName.trim(),
+                parseFloat(row.Value)
+              ]);
+            } else {
+              logger.warn('Invalid row found', {
+                file,
+                rowNumber: rowCount,
+                row: JSON.stringify(row)
+              });
+            }
+          })
+          .on('end', resolve)
+          .on('error', reject);
+      });
+
+      if (records.length > 0) {
+        // Insert records in chunks for better performance
+        const chunkSize = 1000;
+        for (let i = 0; i < records.length; i += chunkSize) {
+          const chunk = records.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => '(?, ?, ?)').join(',');
+          const sql = `INSERT INTO recovery (timestamp, tagName, value) VALUES ${placeholders}`;
+          const values = chunk.flat();
+          await dbAdapter.run(sql, values);
+          logger.info('Inserted chunk of records', {
+            file,
+            chunkSize: chunk.length,
+            totalProcessed: i + chunk.length
+          });
+        }
+        logger.info('Completed processing CSV file', {
+          file,
+          totalRows: rowCount,
+          validRecords: records.length
+        });
+      }
+    }
+  } finally {
+    await dbAdapter.close();
+  }
+}/**
  * Validate required environment variables
  * @throws {Error} If required environment variables are missing
  */
@@ -166,5 +247,6 @@ module.exports = {
   findFilesForDate,
   processFile,
   processDateFiles,
-  validateEnvironmentVariables
+  validateEnvironmentVariables,
+  processCsvFiles
 };
