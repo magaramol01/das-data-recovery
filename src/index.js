@@ -335,7 +335,6 @@ class Application {
             aggregatedRecords: aggregatedData.length,
             processedAt: new Date().toISOString(),
             timeRange: `${startTime} to ${endTime}`,
-            tags: ['FAEIN01', 'FAEIN02', 'FAEIN03', 'FAEIN04', 'FAEIN05', 'FAEIN06', 'FAEIN07', 'FAEIN08', 'FAEIN09', 'FAEIN11', 'FAEIN12', 'FAEIN14', 'FAEIN15', 'FAEIN17']
           },
           data: aggregatedData
         };

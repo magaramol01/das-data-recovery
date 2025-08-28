@@ -22,6 +22,7 @@ class DataProcessor {
     this.mappingName = config.mappingName;
     this.batchSize = config.batchSize || 5000; // Increased from 100 to 5000
     this.maxConcurrency = config.maxConcurrency || 4; // Number of concurrent CSV processors
+    this.aggregationIntervalMinutes = parseInt(process.env.AGGREGATION_INTERVAL_MINUTES) || 5; // Default 5 minutes
     this.dbAdapter = new SqliteAdapter(this.dbPath);
   }
 
@@ -477,20 +478,39 @@ class DataProcessor {
   }
 
   /**
-   * Aggregate data by timestamp
+   * Aggregate data by timestamp with configurable time interval
    * @param {string} startTime - Start timestamp
    * @param {string} endTime - End timestamp
    * @returns {Promise<Object[]>} Aggregated data
    */
   async aggregateData(startTime, endTime) {
+    // Calculate the time truncation format based on aggregation interval
+    const intervalMinutes = this.aggregationIntervalMinutes;
+    let timeFormat;
+    let groupByExpression;
+
+    if (intervalMinutes === 1) {
+      // 1 minute intervals - truncate to minute
+      timeFormat = "datetime(substr(timestamp, 1, 16) || ':00')";
+      groupByExpression = "datetime(substr(timestamp, 1, 16) || ':00')";
+    } else {
+      // Multi-minute intervals - round down to nearest interval
+      timeFormat = `datetime(
+        substr(timestamp, 1, 11) || 
+        printf('%02d:', (cast(substr(timestamp, 12, 2) as integer))) || 
+        printf('%02d:00', (cast(substr(timestamp, 15, 2) as integer) / ${intervalMinutes}) * ${intervalMinutes})
+      )`;
+      groupByExpression = timeFormat;
+    }
+
     const query = `
             SELECT 
-                datetime(substr(timestamp, 1, 16) || ':00') as formatted_timestamp,
+                ${timeFormat} as formatted_timestamp,
                 json_group_object(tagName, value) as aggregated_data,
                 COUNT(*) as record_count
             FROM recovery
             WHERE timestamp >= ? AND timestamp < ?
-            GROUP BY datetime(substr(timestamp, 1, 16) || ':00')
+            GROUP BY ${groupByExpression}
             ORDER BY formatted_timestamp;
         `;
 
@@ -500,6 +520,7 @@ class DataProcessor {
       logger.info('Data aggregation completed', {
         startTime,
         endTime,
+        intervalMinutes: this.aggregationIntervalMinutes,
         recordsAggregated: results.length
       });
 
@@ -509,7 +530,8 @@ class DataProcessor {
         recordCount: row.record_count,
         metadata: {
           aggregatedAt: new Date().toISOString(),
-          timeRange: `${startTime} to ${endTime}`
+          timeRange: `${startTime} to ${endTime}`,
+          intervalMinutes: this.aggregationIntervalMinutes
         }
       }));
     } catch (error) {
@@ -517,6 +539,7 @@ class DataProcessor {
         error: error.message,
         startTime,
         endTime,
+        intervalMinutes: this.aggregationIntervalMinutes,
         stack: error.stack
       });
       throw error;
