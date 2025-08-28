@@ -365,19 +365,29 @@ class Application {
       });
 
       try {
-        // Prepare data payload for API
+        // Transform aggregated data to AlertData format
+        const alertData = aggregatedData.map(record => {
+          // Add timestamp to the data object
+          const alertRecord = {
+            ...record.data,
+            Timestamp: record.timestamp
+          };
+          return alertRecord;
+        });
+
+        // Prepare data payload for API with required structure
         const apiPayload = {
-          date: date,
-          source: 'das-data-recovery',
-          version: '2.0',
-          metadata: {
-            totalSourceRecords: totalRecordsProcessed,
-            aggregatedRecords: aggregatedData.length,
-            processedAt: new Date().toISOString(),
-            timeRange: `${startTime} to ${endTime}`,
-          },
-          data: aggregatedData
+          [process.env.MAPPING_NAME]: {
+            AlertData: alertData
+          }
         };
+
+        logger.info('API payload prepared', {
+          date,
+          mappingName: process.env.MAPPING_NAME,
+          alertRecords: alertData.length,
+          payloadStructure: 'AlertData format'
+        });
 
         // Send data to API endpoint
         const response = await this.httpService.sendData(apiPayload);
@@ -385,13 +395,15 @@ class Application {
         logger.info('API transmission completed successfully', {
           date,
           response: response,
-          recordsSent: aggregatedData.length,
-          payloadSize: JSON.stringify(apiPayload).length
+          recordsSent: alertData.length,
+          payloadSize: JSON.stringify(apiPayload).length,
+          mappingName: process.env.MAPPING_NAME
         });
 
         console.log('\n=== API TRANSMISSION SUCCESS ===');
         console.log(`Date: ${date}`);
-        console.log(`Records sent: ${aggregatedData.length}`);
+        console.log(`Mapping: ${process.env.MAPPING_NAME}`);
+        console.log(`Alert Records sent: ${alertData.length}`);
         console.log(`Endpoint: ${process.env.API_ENDPOINT}`);
         console.log(`Response status: Success`);
         console.log('=== END API TRANSMISSION ===\n');
@@ -402,12 +414,14 @@ class Application {
           error: error.message,
           stack: error.stack,
           endpoint: process.env.API_ENDPOINT,
-          recordsCount: aggregatedData.length
+          recordsCount: alertData ? alertData.length : aggregatedData.length,
+          mappingName: process.env.MAPPING_NAME
         });
 
         console.log('\n=== API TRANSMISSION FAILED ===');
         console.log(`Date: ${date}`);
-        console.log(`Records attempted: ${aggregatedData.length}`);
+        console.log(`Mapping: ${process.env.MAPPING_NAME}`);
+        console.log(`Alert Records attempted: ${alertData ? alertData.length : aggregatedData.length}`);
         console.log(`Endpoint: ${process.env.API_ENDPOINT}`);
         console.log(`Error: ${error.message}`);
         console.log('=== END API TRANSMISSION ===\n');
