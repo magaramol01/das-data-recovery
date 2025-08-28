@@ -3,6 +3,10 @@ const fs = require('fs-extra');
 const path = require('path');
 const { promisify } = require('util');
 const glob = promisify(require('glob'));
+const extract = require('extract-zip');
+const zlib = require('zlib');
+const gunzip = promisify(zlib.gunzip);
+const pipeline = promisify(require('stream').pipeline);
 
 const FROM = process.env.FROM;
 const TO = process.env.TO;
@@ -52,8 +56,9 @@ function getDateRange(from = FROM, to = TO) {
  */
 async function findFilesForDate(searchDate, workingDir) {
   try {
-    const files = await glob(path.join(workingDir, `**/*${searchDate}*`));
-    logger.info('Found files for date', { date: searchDate, count: files.length });
+    // Use correct glob pattern for file extensions
+    const files = await glob(path.join(workingDir, `**/*${searchDate}*.+(zip|csv|gzip|gz)`));
+    logger.info('Found files for date', { date: searchDate, count: files.length, types: 'zip,csv,gzip' });
     return files;
   } catch (error) {
     logger.error('Error finding files', { date: searchDate, error: error.message });
@@ -74,12 +79,34 @@ async function processFile(filePath, date, outputDir) {
     if (!stats.isFile()) return logger.warn('Skipping non-file', { path: filePath });
 
     const fileName = path.basename(filePath);
-    const targetDir = path.join(outputDir, date);
-    const targetPath = path.join(targetDir, fileName);
+    const fileExt = path.extname(fileName).toLowerCase();
 
-    await fs.ensureDir(targetDir);
-    await fs.copy(filePath, targetPath);
-    logger.info('File processed successfully', { source: filePath, destination: targetPath, size: stats.size });
+    await fs.ensureDir(outputDir);
+
+    if (fileExt === '.zip') {
+      // For ZIP files, extract to the output directory
+      await extract(filePath, { dir: outputDir });
+      logger.info('ZIP file extracted successfully', { source: filePath, destination: outputDir, size: stats.size });
+    } else if (fileExt === '.csv') {
+      // For CSV files, copy as is
+      const targetPath = path.join(outputDir, fileName);
+      await fs.copy(filePath, targetPath);
+      logger.info('CSV file copied successfully', { source: filePath, destination: targetPath, size: stats.size });
+    } else if (fileExt === '.gzip' || fileExt === '.gz') {
+      // For GZIP files, decompress them
+      const baseFileName = fileName.replace(/\.gzip$|\.gz$/, '');
+      const targetPath = path.join(outputDir, baseFileName);
+
+      // Use streams for memory-efficient decompression
+      await pipeline(
+        fs.createReadStream(filePath),
+        zlib.createGunzip(),
+        fs.createWriteStream(targetPath)
+      );
+      logger.info('GZIP file extracted successfully', { source: filePath, destination: targetPath, size: stats.size });
+    } else {
+      logger.warn('Skipping unsupported file type', { path: filePath, type: fileExt });
+    }
   } catch (error) {
     logger.error('Error processing file', { file: filePath, date: date, error: error.message });
     throw error;
@@ -118,7 +145,7 @@ async function processDateFiles(date, workingDir, outputDir, concurrencyLimit = 
  */
 function validateEnvironmentVariables() {
   const workingDir = process.env.WORKING_DIR;
-  
+
   if (!workingDir) {
     const error = new Error('WORKING_DIR environment variable is required');
     logger.error(error.message);
