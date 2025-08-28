@@ -155,15 +155,29 @@ class DataProcessor {
    * @returns {Object} Transformed record
    */
   transformRecord(record) {
-    // Add your transformation logic here
-    // This is a placeholder implementation
+    // Find timestamp field
+    const timestamp = record.Timestamp || record.timestamp;
+    if (!timestamp) {
+      throw new Error('CSV file missing required Timestamp column');
+    }
+
+    // Find tagName field
+    const tagName = record.TagName || record.tagName || record.Tag || record.tag;
+    if (!tagName) {
+      throw new Error('CSV file missing required TagName column');
+    }
+
+    // Find value field
+    const value = record.Value || record.value;
+    if (!value) {
+      throw new Error('CSV file missing required Value column');
+    }
+
     return {
-      timestamp: record.timestamp,
-      tagName: record.tag || record.tagName,
-      value: record.value,
+      timestamp,
+      tagName,
+      value,
       metadata: JSON.stringify({
-        source: record.source,
-        quality: record.quality,
         updated: new Date().toISOString()
       })
     };

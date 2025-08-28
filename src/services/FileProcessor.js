@@ -120,9 +120,7 @@ class FileProcessor {
         processingTime
       });
 
-      // Archive the original file
-      await this.archiveFile(filePath);
-
+      // Original file is kept in place, no archiving needed
       return processedPath;
     } catch (error) {
       logger.error('Error processing file', {

@@ -45,12 +45,14 @@ class SqliteAdapter {
       await this.db.exec(`
         CREATE TABLE IF NOT EXISTS recovery (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-          filename TEXT NOT NULL,
-          status TEXT NOT NULL,
-          error TEXT,
-          metadata TEXT
-        )
+          timestamp TEXT NOT NULL,
+          tagName TEXT NOT NULL,
+          value TEXT,
+          metadata TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_recovery_timestamp ON recovery(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_recovery_tagname ON recovery(tagName);
       `);
 
       this.isConnected = true;
