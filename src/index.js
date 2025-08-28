@@ -114,11 +114,51 @@ class Application {
         try {
           const processed = await this.processDate(date);
           totalProcessed += processed;
+
+          // Clean up after each date completion
+          logger.info('Starting cleanup after date completion', { date });
+
+          try {
+            // Clean the output directory after processing each date
+            await this.fileProcessor.cleanOutputDirectory();
+
+            // Clear processed data from database to free up space
+            const recordsDeleted = await this.dataProcessor.clearAllData();
+
+            logger.info('Date cleanup completed successfully', {
+              date,
+              recordsDeleted,
+              outputDirCleaned: true
+            });
+
+          } catch (cleanupError) {
+            logger.error('Error during date cleanup', {
+              date,
+              error: cleanupError.message,
+              stack: cleanupError.stack
+            });
+            // Continue with next date even if cleanup fails
+          }
+
         } catch (error) {
           logger.error('Error processing date', {
             date,
             error: error.message
           });
+
+          // Attempt cleanup even if date processing failed
+          try {
+            logger.info('Attempting cleanup after failed date processing', { date });
+            await this.fileProcessor.cleanOutputDirectory();
+            await this.dataProcessor.clearAllData();
+            logger.info('Cleanup after failed date completed', { date });
+          } catch (cleanupError) {
+            logger.error('Cleanup after failed date also failed', {
+              date,
+              error: cleanupError.message
+            });
+          }
+
           // Continue with next date
           continue;
         }
