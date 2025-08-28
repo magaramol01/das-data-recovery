@@ -137,47 +137,100 @@ class Application {
   }
 
   /**
-   * Process data for a specific date
-   * @param {string} date - Date to process (YYYY-MM-DD)
-   * @returns {Promise<number>} Number of records processed
-   */
+ * Process data for a specific date
+ * @param {string} date - Date in YYYY-MM-DD format
+ * @returns {Promise<number>} Number of records processed
+ */
   async processDate(date) {
     logger.info('Processing date', { date });
 
     // Find files for the date
     const files = await this.fileProcessor.findFilesForDate(date);
+
     if (files.length === 0) {
       logger.info('No files found for date', { date });
       return 0;
     }
 
-    // Process each file
-    let processed = 0;
-    for (const file of files) {
+    logger.info('Starting file processing', {
+      date,
+      totalFiles: files.length,
+      files: files.map(f => path.basename(f))
+    });
+
+    // STEP 1: Copy ALL files to output directory first
+    let copiedFiles = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       try {
-        // Process and move to output directory
-        const processedFile = await this.fileProcessor.processFile(file);
-        if (!processedFile) continue;
+        logger.info('Copying file', {
+          file: path.basename(file),
+          progress: `${i + 1}/${files.length}`,
+          date
+        });
 
-        // Process data from file
-        const records = await this.dataProcessor.processCsvFiles([processedFile]);
-        processed += records;
-
-        // Aggregate and send data
-        if (records > 0) {
-          await this.sendAggregatedData(date);
+        // Copy file to output directory
+        const copiedFile = await this.fileProcessor.copyFileToOutput(file);
+        if (copiedFile) {
+          copiedFiles.push(copiedFile);
         }
       } catch (error) {
-        logger.error('Error processing file', {
-          file,
+        logger.error('Error copying file', {
+          file: path.basename(file),
           error: error.message
         });
-        // Continue with next file
         continue;
       }
     }
 
-    return processed;
+    logger.info('File copying completed', {
+      date,
+      totalSourceFiles: files.length,
+      copiedFiles: copiedFiles.length,
+      copiedFileNames: copiedFiles.map(f => path.basename(f))
+    });
+
+    // STEP 2: Extract ZIP files in output directory
+    let extractedDirs = [];
+    for (let i = 0; i < copiedFiles.length; i++) {
+      const copiedFile = copiedFiles[i];
+      const fileExt = path.extname(copiedFile).toLowerCase();
+
+      if (fileExt === '.zip') {
+        try {
+          logger.info('Extracting ZIP file', {
+            file: path.basename(copiedFile),
+            progress: `${i + 1}/${copiedFiles.length}`,
+            date
+          });
+
+          // Extract ZIP to subdirectory in output directory
+          const extractedDir = await this.fileProcessor.extractZipToOutput(copiedFile);
+          if (extractedDir) {
+            extractedDirs.push(extractedDir);
+          }
+        } catch (error) {
+          logger.error('Error extracting ZIP file', {
+            file: path.basename(copiedFile),
+            error: error.message
+          });
+          continue;
+        }
+      }
+    }
+
+    logger.info('ZIP extraction completed', {
+      date,
+      totalZipFiles: copiedFiles.filter(f => path.extname(f).toLowerCase() === '.zip').length,
+      extractedDirs: extractedDirs.length,
+      extractedDirNames: extractedDirs.map(d => path.basename(d))
+    });
+
+    // TODO: STEP 3 - Process CSV data (commented for now)
+    // TODO: STEP 4 - Store in database (commented for now)
+    // TODO: STEP 5 - Send to API (commented for now)
+
+    return copiedFiles.length + extractedDirs.length;
   }
 
   /**

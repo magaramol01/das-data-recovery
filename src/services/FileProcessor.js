@@ -239,6 +239,93 @@ class FileProcessor {
       throw error;
     }
   }
+
+  /**
+   * Copy file to output directory (Step 1 of new architecture)
+   * @param {string} filePath - Path to the source file
+   * @returns {Promise<string>} Path to the copied file
+   */
+  async copyFileToOutput(filePath) {
+    try {
+      const stats = await fs.stat(filePath);
+      if (!stats.isFile()) {
+        logger.warn('Skipping non-file', { path: filePath });
+        return null;
+      }
+
+      const fileName = path.basename(filePath);
+      const outputPath = path.join(this.outputDir, fileName);
+
+      // Copy file to output directory
+      await fs.copy(filePath, outputPath);
+
+      logger.info('File copied successfully', {
+        source: filePath,
+        destination: outputPath,
+        size: stats.size
+      });
+
+      return outputPath;
+    } catch (error) {
+      logger.error('Error copying file', {
+        path: filePath,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Extract ZIP file to subdirectory in output directory (Step 2 of new architecture)
+   * @param {string} zipFilePath - Path to the ZIP file in output directory
+   * @returns {Promise<string>} Path to the extracted directory
+   */
+  async extractZipToOutput(zipFilePath) {
+    try {
+      // Create subdirectory for extraction
+      const zipName = path.basename(zipFilePath, '.zip');
+      const extractDir = path.join(this.outputDir, zipName);
+      await fs.ensureDir(extractDir);
+
+      // Extract ZIP to subdirectory
+      await extract(zipFilePath, { dir: extractDir });
+
+      // Delete original ZIP file after successful extraction
+      await fs.remove(zipFilePath);
+
+      logger.info('ZIP extraction completed', {
+        zipFile: zipFilePath,
+        extractedTo: extractDir,
+        originalZipDeleted: true
+      });
+
+      return extractDir;
+    } catch (error) {
+      logger.error('Error extracting ZIP file', {
+        path: zipFilePath,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Find all files with specific extensions in a directory recursively
+   * @private
+   * @param {string} dir - Directory to search
+   * @param {string[]} extensions - File extensions to find
+   * @returns {Promise<string[]>} Array of file paths
+   */
+  async findAllFiles(dir, extensions) {
+    const pattern = extensions.length === 1
+      ? `**/*${extensions[0]}`
+      : `**/*.{${extensions.map(ext => ext.slice(1)).join(',')}}`;
+
+    return glob.sync(pattern, { cwd: dir })
+      .map(match => path.join(dir, match));
+  }
 }
 
 module.exports = FileProcessor;
