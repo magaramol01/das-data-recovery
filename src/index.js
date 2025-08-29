@@ -342,8 +342,8 @@ class Application {
     // Step 4: Data Aggregation and API Preparation
     logger.info("Starting data aggregation", { date });
 
-    const startTime = `${date}T00:00:00.000Z`;
-    const endTime = `${date}T23:59:59.999Z`;
+    const startTime = process.env.FROM
+    const endTime =  process.env.TO
 
     try {
       const aggregatedData = await this.dataProcessor.aggregateData(startTime, endTime);
