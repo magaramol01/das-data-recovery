@@ -9,25 +9,17 @@ const logger = require('../config/logger');
 class Helpers {
   /**
    * Generate a date range between two dates
-   * @param {string} startDate - Start date in YYYY-MM-DD HH:MI:SS format
-   * @param {string} endDate - End date in YYYY-MM-DD HH:MI:SS format
+   * @param {string} startDate - Start date in YYYY-MM-DD format
+   * @param {string} endDate - End date in YYYY-MM-DD format
    * @returns {string[]} Array of dates in YYYY-MM-DD format
    */
   static generateDateRange(startDate, endDate) {
     const dates = [];
-
-    // Ensure proper ISO format (replace space with T)
-    let currentDate = new Date(startDate.replace(" ", "T"));
-    const end = new Date(endDate.replace(" ", "T"));
+    const currentDate = new Date(startDate);
+    const end = new Date(endDate);
 
     while (currentDate <= end) {
-      // Format in local YYYY-MM-DD instead of UTC ISO string
-      const year = currentDate.getFullYear();
-      const month = String(currentDate.getMonth() + 1).padStart(2, "0");
-      const day = String(currentDate.getDate()).padStart(2, "0");
-
-      dates.push(`${year}-${month}-${day}`);
-
+      dates.push(currentDate.toISOString().split('T')[0]);
       currentDate.setDate(currentDate.getDate() + 1);
     }
 

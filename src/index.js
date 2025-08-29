@@ -681,8 +681,8 @@ const main = async () => {
     // Print environment configuration table at startup
     printEnvironmentTable();
 
-    const fromDate = process.env.FROM;
-    const toDate = process.env.TO;
+    const fromDate = process.env.FROM.split(' ')[0];
+    const toDate = process.env.TO.split(' ')[0];
 
     if (!fromDate || !toDate) {
       throw new Error("FROM and TO dates are required");
