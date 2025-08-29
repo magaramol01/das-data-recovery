@@ -56,7 +56,7 @@ class Application {
    * Validate required environment variables
    */
   validateEnvironment() {
-    const requiredVars = ["NODE_ENV", "WORKING_DIR", "OUTPUT_DIR", "DB_PATH", "API_ENDPOINT", "API_KEY"];
+    const requiredVars = ["NODE_ENV", "WORKING_DIR", "OUTPUT_DIR", "DB_PATH", "API_ENDPOINT"];
 
     Validators.validateEnv(requiredVars);
 
@@ -99,7 +99,6 @@ class Application {
       // Initialize HTTP Service
       this.httpService = new HttpService({
         endpoint: process.env.API_ENDPOINT,
-        apiKey: process.env.API_KEY,
         tenantId: process.env.TENANT_ID,
         timeout: parseInt(process.env.API_TIMEOUT) || 30000,
       });
