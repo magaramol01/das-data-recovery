@@ -183,7 +183,7 @@ const logger = winston.createLogger({
       maxFiles: 5,
       tailable: true,
     }),
-    // Debug logs
+    // Debug logs (only if log level allows debug)
     new winston.transports.File({
       filename: path.join("logs", "debug.log"),
       level: "debug",
@@ -191,6 +191,8 @@ const logger = winston.createLogger({
       maxsize: 10485760, // 10MB
       maxFiles: 3,
       tailable: true,
+      // Only add this transport if the log level is debug or silly
+      silent: !["debug", "silly"].includes(process.env.LOG_LEVEL || "info"),
     }),
   ],
 });
@@ -200,7 +202,7 @@ if (process.env.NODE_ENV !== "production") {
   logger.add(
     new winston.transports.Console({
       format: consoleFormat,
-      level: "debug",
+      level: process.env.LOG_LEVEL || "info", // Respect the LOG_LEVEL environment variable
     })
   );
 }
