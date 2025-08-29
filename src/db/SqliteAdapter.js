@@ -1,8 +1,11 @@
-const sqlite3 = require('sqlite3');
-const { open } = require('sqlite');
-const fs = require('fs-extra');
-const path = require('path');
-const logger = require('../config/logger');
+const sqlite3 = require("sqlite3");
+const { open } = require("sqlite");
+const fs = require("fs-extra");
+const path = require("path");
+const baseLogger = require("../config/logger");
+
+// Create service-specific logger
+const logger = baseLogger.withService("SqliteAdapter");
 
 /**
  * SQLite Database Adapter
@@ -27,7 +30,7 @@ class SqliteAdapter {
   async connect() {
     try {
       if (this.isConnected) {
-        logger.debug('Already connected to database');
+        logger.debug("Already connected to database");
         return;
       }
 
@@ -35,12 +38,12 @@ class SqliteAdapter {
       const dbDir = path.dirname(this.dbPath);
       await fs.mkdirp(dbDir);
 
-      logger.debug('Connecting to SQLite database', { path: this.dbPath });
+      logger.debug("Connecting to SQLite database", { path: this.dbPath });
 
       // Initialize database connection
       this.db = await open({
         filename: this.dbPath,
-        driver: sqlite3.Database
+        driver: sqlite3.Database,
       });
 
       // Create tables if they don't exist
@@ -58,24 +61,24 @@ class SqliteAdapter {
       `);
 
       // Enable foreign keys
-      await this.db.run('PRAGMA foreign_keys = ON');
+      await this.db.run("PRAGMA foreign_keys = ON");
 
       // Performance optimizations
-      await this.db.run('PRAGMA journal_mode = WAL'); // Write-Ahead Logging for better concurrency
-      await this.db.run('PRAGMA synchronous = NORMAL'); // Reduce sync overhead
-      await this.db.run('PRAGMA cache_size = -64000'); // 64MB cache (negative = KB)
-      await this.db.run('PRAGMA temp_store = MEMORY'); // Store temp tables in memory
-      await this.db.run('PRAGMA mmap_size = 268435456'); // 256MB memory-mapped I/O
-      await this.db.run('PRAGMA page_size = 4096'); // Optimal page size
-      await this.db.run('PRAGMA auto_vacuum = INCREMENTAL'); // Incremental vacuum
+      await this.db.run("PRAGMA journal_mode = WAL"); // Write-Ahead Logging for better concurrency
+      await this.db.run("PRAGMA synchronous = NORMAL"); // Reduce sync overhead
+      await this.db.run("PRAGMA cache_size = -64000"); // 64MB cache (negative = KB)
+      await this.db.run("PRAGMA temp_store = MEMORY"); // Store temp tables in memory
+      await this.db.run("PRAGMA mmap_size = 268435456"); // 256MB memory-mapped I/O
+      await this.db.run("PRAGMA page_size = 4096"); // Optimal page size
+      await this.db.run("PRAGMA auto_vacuum = INCREMENTAL"); // Incremental vacuum
 
       this.isConnected = true;
-      logger.info('Successfully connected to SQLite database with performance optimizations', { path: this.dbPath });
+      logger.info("Successfully connected to SQLite database with performance optimizations", { path: this.dbPath });
     } catch (error) {
-      logger.error('Failed to connect to SQLite database', {
+      logger.error("Failed to connect to SQLite database", {
         error: error.message,
         path: this.dbPath,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -95,19 +98,19 @@ class SqliteAdapter {
       const results = await this.db.all(query, params);
 
       const duration = Date.now() - startTime;
-      logger.debug('Query executed successfully', {
+      logger.debug("Query executed successfully", {
         duration,
         rowCount: results.length,
-        query: query.replace(/\s+/g, ' ').trim()
+        query: query.replace(/\s+/g, " ").trim(),
       });
 
       return results;
     } catch (error) {
-      logger.error('Query execution failed', {
+      logger.error("Query execution failed", {
         error: error.message,
-        query: query.replace(/\s+/g, ' ').trim(),
+        query: query.replace(/\s+/g, " ").trim(),
         parameters: params,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -127,18 +130,18 @@ class SqliteAdapter {
       const result = await this.db.get(query, params);
 
       const duration = Date.now() - startTime;
-      logger.debug('Query executed successfully', {
+      logger.debug("Query executed successfully", {
         duration,
-        query: query.replace(/\s+/g, ' ').trim()
+        query: query.replace(/\s+/g, " ").trim(),
       });
 
       return result;
     } catch (error) {
-      logger.error('Query execution failed', {
+      logger.error("Query execution failed", {
         error: error.message,
-        query: query.replace(/\s+/g, ' ').trim(),
+        query: query.replace(/\s+/g, " ").trim(),
         parameters: params,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -158,20 +161,20 @@ class SqliteAdapter {
       const result = await this.db.run(query, params);
 
       const duration = Date.now() - startTime;
-      logger.debug('Query executed successfully', {
+      logger.debug("Query executed successfully", {
         duration,
         changes: result.changes,
         lastID: result.lastID,
-        query: query.replace(/\s+/g, ' ').trim()
+        query: query.replace(/\s+/g, " ").trim(),
       });
 
       return result;
     } catch (error) {
-      logger.error('Query execution failed', {
+      logger.error("Query execution failed", {
         error: error.message,
-        query: query.replace(/\s+/g, ' ').trim(),
+        query: query.replace(/\s+/g, " ").trim(),
         parameters: params,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -185,17 +188,17 @@ class SqliteAdapter {
     try {
       await this.ensureConnection();
       const startTime = Date.now();
-      const result = await this.db.run('BEGIN EXCLUSIVE TRANSACTION');
+      const result = await this.db.run("BEGIN EXCLUSIVE TRANSACTION");
       const duration = Date.now() - startTime;
 
-      logger.debug('Transaction started', {
+      logger.debug("Transaction started", {
         result,
-        duration
+        duration,
       });
     } catch (error) {
-      logger.error('Failed to start transaction', {
+      logger.error("Failed to start transaction", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -208,25 +211,25 @@ class SqliteAdapter {
   async commit() {
     try {
       const startTime = Date.now();
-      await this.db.run('COMMIT');
+      await this.db.run("COMMIT");
       const duration = Date.now() - startTime;
 
-      logger.debug('Transaction committed', {
-        duration
+      logger.debug("Transaction committed", {
+        duration,
       });
     } catch (error) {
-      logger.error('Failed to commit transaction', {
+      logger.error("Failed to commit transaction", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
 
       // Try to rollback if commit fails
       try {
         await this.rollback();
       } catch (rollbackError) {
-        logger.error('Failed to rollback after commit failure', {
+        logger.error("Failed to rollback after commit failure", {
           error: rollbackError.message,
-          stack: rollbackError.stack
+          stack: rollbackError.stack,
         });
       }
 
@@ -241,16 +244,16 @@ class SqliteAdapter {
   async rollback() {
     try {
       const startTime = Date.now();
-      await this.db.run('ROLLBACK');
+      await this.db.run("ROLLBACK");
       const duration = Date.now() - startTime;
 
-      logger.debug('Transaction rolled back', {
-        duration
+      logger.debug("Transaction rolled back", {
+        duration,
       });
     } catch (error) {
-      logger.error('Failed to rollback transaction', {
+      logger.error("Failed to rollback transaction", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -276,12 +279,12 @@ class SqliteAdapter {
       if (this.db && this.isConnected) {
         await this.db.close();
         this.isConnected = false;
-        logger.info('Database connection closed');
+        logger.info("Database connection closed");
       }
     } catch (error) {
-      logger.error('Failed to close database connection', {
+      logger.error("Failed to close database connection", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -304,8 +307,8 @@ class SqliteAdapter {
       const startTime = Date.now();
 
       // Create prepared statement
-      const placeholders = columns.map(() => '?').join(', ');
-      const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
+      const placeholders = columns.map(() => "?").join(", ");
+      const sql = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`;
 
       const stmt = await this.db.prepare(sql);
 
@@ -324,11 +327,11 @@ class SqliteAdapter {
         await stmt.finalize();
 
         const duration = Date.now() - startTime;
-        logger.info('Bulk insert completed successfully', {
+        logger.info("Bulk insert completed successfully", {
           table,
           recordCount: insertedCount,
           duration,
-          recordsPerSecond: Math.round(insertedCount / (duration / 1000))
+          recordsPerSecond: Math.round(insertedCount / (duration / 1000)),
         });
 
         return insertedCount;
@@ -338,11 +341,11 @@ class SqliteAdapter {
         throw error;
       }
     } catch (error) {
-      logger.error('Bulk insert failed', {
+      logger.error("Bulk insert failed", {
         error: error.message,
         table,
         recordCount: records?.length || 0,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -373,8 +376,8 @@ class SqliteAdapter {
         // Process records in batches
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
-          const valuePlaceholders = batch.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ');
-          const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES ${valuePlaceholders}`;
+          const valuePlaceholders = batch.map(() => `(${columns.map(() => "?").join(", ")})`).join(", ");
+          const sql = `INSERT INTO ${table} (${columns.join(", ")}) VALUES ${valuePlaceholders}`;
 
           // Flatten the batch for parameters
           const params = batch.flat();
@@ -384,11 +387,11 @@ class SqliteAdapter {
 
           // Log progress for large batches
           if (records.length > 10000) {
-            logger.debug('Batch insert progress', {
+            logger.debug("Batch insert progress", {
               table,
               processed: totalInserted,
               total: records.length,
-              progress: `${Math.round((totalInserted / records.length) * 100)}%`
+              progress: `${Math.round((totalInserted / records.length) * 100)}%`,
             });
           }
         }
@@ -396,12 +399,12 @@ class SqliteAdapter {
         await this.commit();
 
         const duration = Date.now() - startTime;
-        logger.info('Batch insert completed successfully', {
+        logger.info("Batch insert completed successfully", {
           table,
           recordCount: totalInserted,
           batchSize,
           duration,
-          recordsPerSecond: Math.round(totalInserted / (duration / 1000))
+          recordsPerSecond: Math.round(totalInserted / (duration / 1000)),
         });
 
         return totalInserted;
@@ -410,12 +413,12 @@ class SqliteAdapter {
         throw error;
       }
     } catch (error) {
-      logger.error('Batch insert failed', {
+      logger.error("Batch insert failed", {
         error: error.message,
         table,
         recordCount: records?.length || 0,
         batchSize,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }

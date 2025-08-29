@@ -1,9 +1,12 @@
-const logger = require('../config/logger');
-const SqliteAdapter = require('../db/SqliteAdapter');
-const { pipeline } = require('stream/promises');
-const csv = require('csv-parser');
-const fs = require('fs-extra');
-const path = require('path');
+const baseLogger = require("../config/logger");
+const SqliteAdapter = require("../db/SqliteAdapter");
+const { pipeline } = require("stream/promises");
+const csv = require("csv-parser");
+const fs = require("fs-extra");
+const path = require("path");
+
+// Create service-specific logger
+const logger = baseLogger.withService("DataProcessor");
 
 /**
  * DataProcessor Service
@@ -34,11 +37,11 @@ class DataProcessor {
     try {
       await this.dbAdapter.connect();
       await this.ensureTablesExist();
-      logger.info('DataProcessor initialized successfully');
+      logger.info("DataProcessor initialized successfully");
     } catch (error) {
-      logger.error('Failed to initialize DataProcessor', {
+      logger.error("Failed to initialize DataProcessor", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -64,7 +67,7 @@ class DataProcessor {
         `;
 
     await this.dbAdapter.run(createTableQuery);
-    logger.debug('Database tables verified');
+    logger.debug("Database tables verified");
   }
 
   /**
@@ -80,10 +83,10 @@ class DataProcessor {
     let totalProcessed = 0;
 
     try {
-      logger.info('Starting parallel CSV processing', {
+      logger.info("Starting parallel CSV processing", {
         fileCount: filePaths.length,
         maxConcurrency: this.maxConcurrency,
-        actualConcurrency: Math.min(this.maxConcurrency, filePaths.length)
+        actualConcurrency: Math.min(this.maxConcurrency, filePaths.length),
       });
 
       // Process files in parallel with limited concurrency
@@ -97,25 +100,25 @@ class DataProcessor {
         const filePath = filePaths[currentIndex];
 
         try {
-          logger.info('Processing CSV file', {
+          logger.info("Processing CSV file", {
             file: path.basename(filePath),
-            progress: `${currentIndex + 1}/${filePaths.length}`
+            progress: `${currentIndex + 1}/${filePaths.length}`,
           });
 
           const processed = await this.processSingleCsvFileOptimized(filePath);
 
-          logger.info('CSV file completed', {
+          logger.info("CSV file completed", {
             file: path.basename(filePath),
             recordsProcessed: processed,
-            progress: `${currentIndex + 1}/${filePaths.length}`
+            progress: `${currentIndex + 1}/${filePaths.length}`,
           });
 
           return processed;
         } catch (error) {
-          logger.error('Error processing CSV file', {
+          logger.error("Error processing CSV file", {
             file: path.basename(filePath),
             error: error.message,
-            progress: `${currentIndex + 1}/${filePaths.length}`
+            progress: `${currentIndex + 1}/${filePaths.length}`,
           });
           return 0; // Return 0 for failed files, but continue processing
         }
@@ -135,21 +138,21 @@ class DataProcessor {
 
           return totalProcessedByWorker;
         })()
-      );      // Wait for all processors to complete
+      ); // Wait for all processors to complete
       const results = await Promise.all(processors);
       totalProcessed = results.reduce((sum, count) => sum + count, 0);
 
-      logger.info('All CSV processing completed', {
+      logger.info("All CSV processing completed", {
         filesProcessed: filePaths.length,
         totalRecords: totalProcessed,
-        avgRecordsPerFile: Math.round(totalProcessed / filePaths.length)
+        avgRecordsPerFile: Math.round(totalProcessed / filePaths.length),
       });
 
       return totalProcessed;
     } catch (error) {
-      logger.error('Error in parallel CSV processing', {
+      logger.error("Error in parallel CSV processing", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -167,9 +170,9 @@ class DataProcessor {
     }
 
     try {
-      logger.info('Starting simple parallel CSV processing', {
+      logger.info("Starting simple parallel CSV processing", {
         fileCount: filePaths.length,
-        maxConcurrency: this.maxConcurrency
+        maxConcurrency: this.maxConcurrency,
       });
 
       let totalProcessed = 0;
@@ -178,10 +181,10 @@ class DataProcessor {
       for (let i = 0; i < filePaths.length; i += this.maxConcurrency) {
         const chunk = filePaths.slice(i, i + this.maxConcurrency);
 
-        logger.info('Processing file chunk', {
+        logger.info("Processing file chunk", {
           chunkSize: chunk.length,
           progress: `${Math.min(i + this.maxConcurrency, filePaths.length)}/${filePaths.length}`,
-          files: chunk.map(f => path.basename(f))
+          files: chunk.map((f) => path.basename(f)),
         });
 
         // Process chunk in parallel
@@ -189,25 +192,25 @@ class DataProcessor {
           chunk.map(async (filePath, index) => {
             const globalIndex = i + index;
             try {
-              logger.info('Processing CSV file', {
+              logger.info("Processing CSV file", {
                 file: path.basename(filePath),
-                progress: `${globalIndex + 1}/${filePaths.length}`
+                progress: `${globalIndex + 1}/${filePaths.length}`,
               });
 
               const processed = await this.processSingleCsvFileOptimized(filePath);
 
-              logger.info('CSV file completed', {
+              logger.info("CSV file completed", {
                 file: path.basename(filePath),
                 recordsProcessed: processed,
-                progress: `${globalIndex + 1}/${filePaths.length}`
+                progress: `${globalIndex + 1}/${filePaths.length}`,
               });
 
               return processed;
             } catch (error) {
-              logger.error('Error processing CSV file', {
+              logger.error("Error processing CSV file", {
                 file: path.basename(filePath),
                 error: error.message,
-                progress: `${globalIndex + 1}/${filePaths.length}`
+                progress: `${globalIndex + 1}/${filePaths.length}`,
               });
               return 0;
             }
@@ -216,30 +219,30 @@ class DataProcessor {
 
         // Sum up results from this chunk
         const chunkTotal = chunkResults.reduce((sum, result) => {
-          return sum + (result.status === 'fulfilled' ? result.value : 0);
+          return sum + (result.status === "fulfilled" ? result.value : 0);
         }, 0);
 
         totalProcessed += chunkTotal;
 
-        logger.info('Chunk processing completed', {
+        logger.info("Chunk processing completed", {
           chunkSize: chunk.length,
           chunkRecords: chunkTotal,
           totalSoFar: totalProcessed,
-          progress: `${Math.min(i + this.maxConcurrency, filePaths.length)}/${filePaths.length}`
+          progress: `${Math.min(i + this.maxConcurrency, filePaths.length)}/${filePaths.length}`,
         });
       }
 
-      logger.info('Simple parallel CSV processing completed', {
+      logger.info("Simple parallel CSV processing completed", {
         filesProcessed: filePaths.length,
         totalRecords: totalProcessed,
-        avgRecordsPerFile: filePaths.length > 0 ? Math.round(totalProcessed / filePaths.length) : 0
+        avgRecordsPerFile: filePaths.length > 0 ? Math.round(totalProcessed / filePaths.length) : 0,
       });
 
       return totalProcessed;
     } catch (error) {
-      logger.error('Error in simple parallel CSV processing', {
+      logger.error("Error in simple parallel CSV processing", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -255,44 +258,40 @@ class DataProcessor {
     let recordCount = 0;
     let batch = [];
 
-    logger.debug('Starting CSV processing', { filePath });
+    logger.debug("Starting CSV processing", { filePath });
 
     try {
       // Begin transaction for the entire file processing
       await this.dbAdapter.beginTransaction();
 
-      await pipeline(
-        fs.createReadStream(filePath),
-        csv(),
-        async (source) => {
-          for await (const record of source) {
-            logger.debug('Processing record', { record });
-            const transformed = this.transformRecord(record);
-            logger.debug('Transformed record', { transformed });
-            batch.push(transformed);
-            recordCount++;
+      await pipeline(fs.createReadStream(filePath), csv(), async (source) => {
+        for await (const record of source) {
+          logger.debug("Processing record", { record });
+          const transformed = this.transformRecord(record);
+          logger.debug("Transformed record", { transformed });
+          batch.push(transformed);
+          recordCount++;
 
-            if (batch.length >= this.batchSize) {
-              logger.debug('Processing batch', { batchSize: batch.length });
-              await this.insertBatch(batch);
-              batch = [];
-            }
-          }
-
-          // Insert remaining records
-          if (batch.length > 0) {
-            logger.debug('Processing final batch', { batchSize: batch.length });
+          if (batch.length >= this.batchSize) {
+            logger.debug("Processing batch", { batchSize: batch.length });
             await this.insertBatch(batch);
+            batch = [];
           }
         }
-      );
+
+        // Insert remaining records
+        if (batch.length > 0) {
+          logger.debug("Processing final batch", { batchSize: batch.length });
+          await this.insertBatch(batch);
+        }
+      });
 
       // Commit the entire file transaction
       await this.dbAdapter.commit();
 
-      logger.info('CSV file processed successfully', {
+      logger.info("CSV file processed successfully", {
         file: filePath,
-        recordsProcessed: recordCount
+        recordsProcessed: recordCount,
       });
 
       return recordCount;
@@ -301,17 +300,17 @@ class DataProcessor {
       try {
         await this.dbAdapter.rollback();
       } catch (rollbackError) {
-        logger.error('Error rolling back transaction', {
+        logger.error("Error rolling back transaction", {
           file: filePath,
           error: rollbackError.message,
-          stack: rollbackError.stack
+          stack: rollbackError.stack,
         });
       }
 
-      logger.error('Error processing CSV file', {
+      logger.error("Error processing CSV file", {
         file: filePath,
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -329,34 +328,30 @@ class DataProcessor {
     const allRecords = [];
 
     const startTime = Date.now();
-    logger.debug('Starting optimized CSV processing', { filePath });
+    logger.debug("Starting optimized CSV processing", { filePath });
 
     try {
       // Read and parse entire CSV file into memory (streaming with accumulation)
-      await pipeline(
-        fs.createReadStream(filePath),
-        csv(),
-        async (source) => {
-          for await (const record of source) {
-            const transformed = this.transformRecord(record);
-            if (transformed) {
-              allRecords.push([
-                transformed.timestamp,
-                transformed.tagName,
-                transformed.value,
-                transformed.metadata || null
-              ]);
-              recordCount++;
-            }
+      await pipeline(fs.createReadStream(filePath), csv(), async (source) => {
+        for await (const record of source) {
+          const transformed = this.transformRecord(record);
+          if (transformed) {
+            allRecords.push([
+              transformed.timestamp,
+              transformed.tagName,
+              transformed.value,
+              transformed.metadata || null,
+            ]);
+            recordCount++;
           }
         }
-      );
+      });
 
       // Bulk insert all records at once if we have any
       if (allRecords.length > 0) {
-        logger.debug('Starting bulk database insert', {
+        logger.debug("Starting bulk database insert", {
           file: path.basename(filePath),
-          recordCount: allRecords.length
+          recordCount: allRecords.length,
         });
 
         // Use a dedicated database adapter instance for each file to avoid transaction conflicts
@@ -365,8 +360,8 @@ class DataProcessor {
 
         try {
           await fileDbAdapter.batchInsert(
-            'recovery',
-            ['timestamp', 'tagName', 'value', 'metadata'],
+            "recovery",
+            ["timestamp", "tagName", "value", "metadata"],
             allRecords,
             this.batchSize
           );
@@ -376,24 +371,25 @@ class DataProcessor {
       }
 
       const duration = Date.now() - startTime;
-      logger.info('Optimized CSV file processed successfully', {
+      logger.info("Optimized CSV file processed successfully", {
         file: path.basename(filePath),
         recordsProcessed: recordCount,
         duration,
-        recordsPerSecond: recordCount > 0 ? Math.round(recordCount / (duration / 1000)) : 0
+        recordsPerSecond: recordCount > 0 ? Math.round(recordCount / (duration / 1000)) : 0,
       });
 
       return recordCount;
     } catch (error) {
-      logger.error('Error in optimized CSV processing', {
+      logger.error("Error in optimized CSV processing", {
         file: path.basename(filePath),
         error: error.message,
         recordsProcessed: recordCount,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
-  }  /**
+  }
+  /**
    * Transform a record before insertion
    * @private
    * @param {Object} record - Raw record from CSV
@@ -403,19 +399,19 @@ class DataProcessor {
     // Find timestamp field
     const timestamp = record.Timestamp || record.timestamp;
     if (!timestamp) {
-      throw new Error('CSV file missing required Timestamp column');
+      throw new Error("CSV file missing required Timestamp column");
     }
 
     // Find tagName field
     const tagName = record.TagName || record.tagName || record.Tag || record.tag;
     if (!tagName) {
-      throw new Error('CSV file missing required TagName column');
+      throw new Error("CSV file missing required TagName column");
     }
 
     // Find value field
     const value = record.Value || record.value;
     if (!value) {
-      throw new Error('CSV file missing required Value column');
+      throw new Error("CSV file missing required Value column");
     }
 
     return {
@@ -423,8 +419,8 @@ class DataProcessor {
       tagName,
       value,
       metadata: JSON.stringify({
-        updated: new Date().toISOString()
-      })
+        updated: new Date().toISOString(),
+      }),
     };
   }
 
@@ -444,33 +440,28 @@ class DataProcessor {
             VALUES (?, ?, ?, ?)
         `;
 
-    logger.debug('Processing batch', {
+    logger.debug("Processing batch", {
       batchSize: batch.length,
       firstRecord: batch[0],
-      lastRecord: batch[batch.length - 1]
+      lastRecord: batch[batch.length - 1],
     });
 
     for (const record of batch) {
-      const params = [
-        record.timestamp,
-        record.tagName,
-        record.value,
-        record.metadata
-      ];
+      const params = [record.timestamp, record.tagName, record.value, record.metadata];
 
       try {
         const result = await this.dbAdapter.run(query, params);
-        logger.debug('Insert result', {
+        logger.debug("Insert result", {
           changes: result?.changes,
           lastID: result?.lastID,
           timestamp: record.timestamp,
-          tagName: record.tagName
+          tagName: record.tagName,
         });
       } catch (error) {
-        logger.error('Failed to insert record', {
+        logger.error("Failed to insert record", {
           error: error.message,
           record,
-          stack: error.stack
+          stack: error.stack,
         });
         throw error;
       }
@@ -517,30 +508,30 @@ class DataProcessor {
     try {
       const results = await this.dbAdapter.all(query, [startTime, endTime]);
 
-      logger.info('Data aggregation completed', {
+      logger.info("Data aggregation completed", {
         startTime,
         endTime,
         intervalMinutes: this.aggregationIntervalMinutes,
-        recordsAggregated: results.length
+        recordsAggregated: results.length,
       });
 
-      return results.map(row => ({
+      return results.map((row) => ({
         timestamp: row.formatted_timestamp,
         data: JSON.parse(row.aggregated_data),
         recordCount: row.record_count,
         metadata: {
           aggregatedAt: new Date().toISOString(),
           timeRange: `${startTime} to ${endTime}`,
-          intervalMinutes: this.aggregationIntervalMinutes
-        }
+          intervalMinutes: this.aggregationIntervalMinutes,
+        },
       }));
     } catch (error) {
-      logger.error('Error aggregating data', {
+      logger.error("Error aggregating data", {
         error: error.message,
         startTime,
         endTime,
         intervalMinutes: this.aggregationIntervalMinutes,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -556,21 +547,18 @@ class DataProcessor {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
 
-      const result = await this.dbAdapter.run(
-        'DELETE FROM recovery WHERE timestamp < ?',
-        [cutoffDate.toISOString()]
-      );
+      const result = await this.dbAdapter.run("DELETE FROM recovery WHERE timestamp < ?", [cutoffDate.toISOString()]);
 
-      logger.info('Database cleanup completed', {
+      logger.info("Database cleanup completed", {
         daysKept: daysToKeep,
-        recordsDeleted: result.changes
+        recordsDeleted: result.changes,
       });
 
       return result.changes;
     } catch (error) {
-      logger.error('Error during database cleanup', {
+      logger.error("Error during database cleanup", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -582,19 +570,19 @@ class DataProcessor {
    */
   async clearAllData() {
     try {
-      logger.info('Starting complete database cleanup');
+      logger.info("Starting complete database cleanup");
 
-      const result = await this.dbAdapter.run('DELETE FROM recovery');
+      const result = await this.dbAdapter.run("DELETE FROM recovery");
 
-      logger.info('Complete database cleanup completed', {
-        recordsDeleted: result.changes
+      logger.info("Complete database cleanup completed", {
+        recordsDeleted: result.changes,
       });
 
       return result.changes;
     } catch (error) {
-      logger.error('Error during complete database cleanup', {
+      logger.error("Error during complete database cleanup", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -608,13 +596,13 @@ class DataProcessor {
     try {
       if (this.dbAdapter) {
         await this.dbAdapter.close();
-        logger.info('Database connection closed successfully');
+        logger.info("Database connection closed successfully");
       }
-      logger.info('DataProcessor closed successfully');
+      logger.info("DataProcessor closed successfully");
     } catch (error) {
-      logger.error('Error closing DataProcessor', {
+      logger.error("Error closing DataProcessor", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }

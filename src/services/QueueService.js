@@ -1,7 +1,10 @@
-const logger = require('../config/logger');
-const fs = require('fs-extra');
-const path = require('path');
-const { BATCH_SIZES, DEFAULT_CONFIG } = require('../constants');
+const baseLogger = require("../config/logger");
+const fs = require("fs-extra");
+const path = require("path");
+const { BATCH_SIZES, DEFAULT_CONFIG } = require("../constants");
+
+// Create service-specific logger
+const logger = baseLogger.withService("QueueService");
 
 /**
  * QueueService
@@ -16,8 +19,8 @@ class QueueService {
    * @param {number} config.batchSize - Size of processing batches
    */
   constructor(config = {}) {
-    this.outputDir = config.outputDir || './output';
-    this.queueFileName = config.queueFileName || 'data_queue.jsonl';
+    this.outputDir = config.outputDir || "./output";
+    this.queueFileName = config.queueFileName || "data_queue.jsonl";
     this.batchSize = config.batchSize || BATCH_SIZES.MEDIUM;
     this.queue = [];
     this.persistPath = path.join(this.outputDir, this.queueFileName);
@@ -32,14 +35,14 @@ class QueueService {
       await fs.ensureDir(this.outputDir);
       // Load any existing queued data
       await this.loadPersistedQueue();
-      logger.info('Queue service initialized', {
+      logger.info("Queue service initialized", {
         outputDir: this.outputDir,
-        queueSize: this.queue.length
+        queueSize: this.queue.length,
       });
     } catch (error) {
-      logger.error('Failed to initialize queue service', {
+      logger.error("Failed to initialize queue service", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -53,20 +56,20 @@ class QueueService {
   async loadPersistedQueue() {
     try {
       if (await fs.pathExists(this.persistPath)) {
-        const content = await fs.readFile(this.persistPath, 'utf8');
+        const content = await fs.readFile(this.persistPath, "utf8");
         this.queue = content
-          .split('\n')
-          .filter(line => line.trim())
-          .map(line => JSON.parse(line));
+          .split("\n")
+          .filter((line) => line.trim())
+          .map((line) => JSON.parse(line));
 
-        logger.info('Loaded persisted queue data', {
-          itemsLoaded: this.queue.length
+        logger.info("Loaded persisted queue data", {
+          itemsLoaded: this.queue.length,
         });
       }
     } catch (error) {
-      logger.error('Error loading persisted queue', {
+      logger.error("Error loading persisted queue", {
         error: error.message,
-        path: this.persistPath
+        path: this.persistPath,
       });
       // Continue with empty queue
       this.queue = [];
@@ -84,20 +87,20 @@ class QueueService {
       const queueItem = {
         ...data,
         queuedAt: new Date().toISOString(),
-        attempts: 0
+        attempts: 0,
       };
 
       this.queue.push(queueItem);
       await this.persistQueueItem(queueItem);
 
-      logger.debug('Added item to queue', {
+      logger.debug("Added item to queue", {
         queueSize: this.queue.length,
-        timestamp: data.Timestamp
+        timestamp: data.Timestamp,
       });
     } catch (error) {
-      logger.error('Error adding to queue', {
+      logger.error("Error adding to queue", {
         error: error.message,
-        data: JSON.stringify(data)
+        data: JSON.stringify(data),
       });
       throw error;
     }
@@ -111,23 +114,23 @@ class QueueService {
   async addBatchToQueue(items) {
     try {
       const timestamp = new Date().toISOString();
-      const queueItems = items.map(item => ({
+      const queueItems = items.map((item) => ({
         ...item,
         queuedAt: timestamp,
-        attempts: 0
+        attempts: 0,
       }));
 
       this.queue.push(...queueItems);
       await this.persistQueueBatch(queueItems);
 
-      logger.info('Added batch to queue', {
+      logger.info("Added batch to queue", {
         itemsAdded: items.length,
-        newQueueSize: this.queue.length
+        newQueueSize: this.queue.length,
       });
     } catch (error) {
-      logger.error('Error adding batch to queue', {
+      logger.error("Error adding batch to queue", {
         error: error.message,
-        itemCount: items.length
+        itemCount: items.length,
       });
       throw error;
     }
@@ -141,14 +144,11 @@ class QueueService {
    */
   async persistQueueItem(item) {
     try {
-      await fs.appendFile(
-        this.persistPath,
-        JSON.stringify(item) + '\n'
-      );
+      await fs.appendFile(this.persistPath, JSON.stringify(item) + "\n");
     } catch (error) {
-      logger.error('Error persisting queue item', {
+      logger.error("Error persisting queue item", {
         error: error.message,
-        item: JSON.stringify(item)
+        item: JSON.stringify(item),
       });
       throw error;
     }
@@ -162,15 +162,13 @@ class QueueService {
    */
   async persistQueueBatch(items) {
     try {
-      const content = items
-        .map(item => JSON.stringify(item))
-        .join('\n') + '\n';
+      const content = items.map((item) => JSON.stringify(item)).join("\n") + "\n";
 
       await fs.appendFile(this.persistPath, content);
     } catch (error) {
-      logger.error('Error persisting queue batch', {
+      logger.error("Error persisting queue batch", {
         error: error.message,
-        itemCount: items.length
+        itemCount: items.length,
       });
       throw error;
     }
@@ -194,19 +192,19 @@ class QueueService {
       return { totalItems: 0 };
     }
 
-    const timestamps = this.queue.map(item => new Date(item.Timestamp));
-    const attempts = this.queue.map(item => item.attempts);
+    const timestamps = this.queue.map((item) => new Date(item.Timestamp));
+    const attempts = this.queue.map((item) => item.attempts);
 
     return {
       totalItems: this.queue.length,
       dateRange: {
         earliest: new Date(Math.min(...timestamps)),
-        latest: new Date(Math.max(...timestamps))
+        latest: new Date(Math.max(...timestamps)),
       },
       attempts: {
         average: attempts.reduce((a, b) => a + b, 0) / attempts.length,
-        max: Math.max(...attempts)
-      }
+        max: Math.max(...attempts),
+      },
     };
   }
 
@@ -217,12 +215,12 @@ class QueueService {
   async clearQueue() {
     try {
       this.queue = [];
-      await fs.writeFile(this.persistPath, '');
-      logger.info('Queue cleared successfully');
+      await fs.writeFile(this.persistPath, "");
+      logger.info("Queue cleared successfully");
     } catch (error) {
-      logger.error('Error clearing queue', {
+      logger.error("Error clearing queue", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -235,18 +233,16 @@ class QueueService {
    */
   async updatePersistence() {
     try {
-      const content = this.queue
-        .map(item => JSON.stringify(item))
-        .join('\n') + '\n';
+      const content = this.queue.map((item) => JSON.stringify(item)).join("\n") + "\n";
 
       await fs.writeFile(this.persistPath, content);
-      logger.debug('Queue persistence updated', {
-        itemCount: this.queue.length
+      logger.debug("Queue persistence updated", {
+        itemCount: this.queue.length,
       });
     } catch (error) {
-      logger.error('Error updating queue persistence', {
+      logger.error("Error updating queue persistence", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }
@@ -262,24 +258,23 @@ class QueueService {
       const cutoff = new Date(Date.now() - maxAge);
       const originalLength = this.queue.length;
 
-      this.queue = this.queue.filter(item =>
-        new Date(item.queuedAt) > cutoff);
+      this.queue = this.queue.filter((item) => new Date(item.queuedAt) > cutoff);
 
       const removedCount = originalLength - this.queue.length;
 
       if (removedCount > 0) {
         await this.updatePersistence();
-        logger.info('Queue cleanup completed', {
+        logger.info("Queue cleanup completed", {
           itemsRemoved: removedCount,
-          remainingItems: this.queue.length
+          remainingItems: this.queue.length,
         });
       }
 
       return removedCount;
     } catch (error) {
-      logger.error('Error during queue cleanup', {
+      logger.error("Error during queue cleanup", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw error;
     }

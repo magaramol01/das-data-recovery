@@ -1,5 +1,8 @@
 const axios = require("axios");
-const logger = require("../config/logger");
+const baseLogger = require("../config/logger");
+
+// Create service-specific logger
+const logger = baseLogger.withService("HttpService");
 
 /**
  * HttpService

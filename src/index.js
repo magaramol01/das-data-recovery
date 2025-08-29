@@ -1,6 +1,6 @@
 require("dotenv").config();
 const path = require("path");
-const logger = require("./config/logger");
+const baseLogger = require("./config/logger");
 const FileProcessor = require("./services/FileProcessor");
 const DataProcessor = require("./services/DataProcessor");
 const QueueService = require("./services/QueueService");
@@ -8,6 +8,9 @@ const HttpService = require("./services/HttpService");
 const Validators = require("./utils/validators");
 const Helpers = require("./utils/helpers");
 const { ENVIRONMENT, BATCH_SIZES, ERROR_MESSAGES } = require("./constants");
+
+// Create application-specific logger
+const logger = baseLogger.withService("Application");
 
 /**
  * Main application class
