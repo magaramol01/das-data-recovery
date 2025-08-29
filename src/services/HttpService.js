@@ -279,6 +279,23 @@ class HttpService {
       errorInfo.status = error.response.status;
       errorInfo.data = error.response.data;
       errorInfo.headers = error.response.headers;
+
+      // Special handling for 413 Payload Too Large errors
+      if (error.response.status === 413) {
+        const requestPayload = error.config?.data;
+        const payloadSize = requestPayload ? JSON.stringify(requestPayload).length : "unknown";
+
+        logger.error("Payload too large error - consider reducing batch size", {
+          status: 413,
+          message: "Request entity too large",
+          payloadSize: payloadSize,
+          suggestion: "Reduce API_BATCH_SIZE in environment configuration",
+          currentBatchSizeRecommendation: "Try setting API_BATCH_SIZE=25 or smaller",
+        });
+
+        errorInfo.payloadSize = payloadSize;
+        errorInfo.suggestion = "Reduce API_BATCH_SIZE";
+      }
     } else if (error.request) {
       // Request was made but no response received
       errorInfo.request = {

@@ -86,7 +86,7 @@ class Application {
         dbPath: process.env.DB_PATH,
         mappingName: process.env.MAPPING_NAME,
         batchSize: parseInt(process.env.BATCH_SIZE) || BATCH_SIZES.LARGE, // Increased default
-        maxConcurrency: parseInt(process.env.MAX_CONCURRENCY) || 4,
+        maxConcurrency: parseInt(process.env.MAX_CONCURRENCY) || 1, // Reduced from 4 to 2 for better database concurrency
       });
 
       // Initialize Queue Service
@@ -141,7 +141,7 @@ class Application {
 
           try {
             // Clean the output directory after processing each date
-            // await this.fileProcessor.cleanOutputDirectory();
+            await this.fileProcessor.cleanOutputDirectory();
 
             // Clear processed data from database to free up space
             const recordsDeleted = await this.dataProcessor.clearAllData();
@@ -407,41 +407,124 @@ class Application {
           return;
         }
 
-        // Prepare data payload for API with required structure
-        const apiPayload = {
-          [process.env.MAPPING_NAME]: {
-            AlertData: alertData,
-          },
-        };
+        // Send data in batches to avoid 413 Payload Too Large errors
+        const BATCH_SIZE = parseInt(process.env.API_BATCH_SIZE) || 50; // Default to 50 records per batch
+        const totalBatches = Math.ceil(alertData.length / BATCH_SIZE);
 
-        logger.info("API payload prepared", {
+        logger.info("Preparing to send data in batches", {
           date,
+          totalRecords: alertData.length,
+          batchSize: BATCH_SIZE,
+          totalBatches: totalBatches,
           mappingName: process.env.MAPPING_NAME,
-          alertRecords: alertData.length,
-          payloadStructure: "AlertData format",
         });
 
-        // Send data to API endpoint
-        const response = await this.httpService.sendData(apiPayload);
+        let successfulBatches = 0;
+        let failedBatches = 0;
+        let totalRecordsSent = 0;
 
-        // Handle skipped response
-        if (response.skipped) {
-          logger.info("API transmission skipped by service", {
-            date,
-            reason: response.reason,
-            message: response.message,
-            alertRecords: alertData.length,
-          });
-          return;
+        // Process each batch
+        for (let i = 0; i < totalBatches; i++) {
+          const batchStart = i * BATCH_SIZE;
+          const batchEnd = Math.min(batchStart + BATCH_SIZE, alertData.length);
+          const batchData = alertData.slice(batchStart, batchEnd);
+
+          // Prepare data payload for API with required structure
+          const apiPayload = {
+            [process.env.MAPPING_NAME]: {
+              AlertData: batchData,
+            },
+          };
+
+          try {
+            logger.info("Sending batch to API", {
+              date,
+              batchNumber: i + 1,
+              totalBatches,
+              batchSize: batchData.length,
+              progress: `${i + 1}/${totalBatches}`,
+              mappingName: process.env.MAPPING_NAME,
+            });
+
+            // Send batch to API endpoint
+            const response = await this.httpService.sendData(apiPayload);
+
+            // Handle skipped response
+            if (response.skipped) {
+              logger.info("API batch transmission skipped by service", {
+                date,
+                batchNumber: i + 1,
+                reason: response.reason,
+                message: response.message,
+                batchSize: batchData.length,
+              });
+            } else {
+              logger.info("API batch transmission completed successfully", {
+                date,
+                batchNumber: i + 1,
+                totalBatches,
+                response: response,
+                recordsSent: batchData.length,
+                payloadSize: JSON.stringify(apiPayload).length,
+                mappingName: process.env.MAPPING_NAME,
+              });
+            }
+
+            successfulBatches++;
+            totalRecordsSent += batchData.length;
+
+            // Small delay between batches to avoid overwhelming the API
+            if (i < totalBatches - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 100)); // 100ms delay between batches
+            }
+          } catch (batchError) {
+            failedBatches++;
+            logger.error("API batch transmission failed", {
+              date,
+              batchNumber: i + 1,
+              totalBatches,
+              error: batchError.message,
+              stack: batchError.stack,
+              endpoint: process.env.API_ENDPOINT,
+              batchSize: batchData.length,
+              mappingName: process.env.MAPPING_NAME,
+              isPayloadTooLarge: batchError.response?.status === 413,
+            });
+
+            // If it's a 413 error and batch size is already small, log warning
+            if (batchError.response?.status === 413 && BATCH_SIZE <= 50) {
+              logger.warn("413 error even with small batch size - consider reducing API_BATCH_SIZE further", {
+                currentBatchSize: BATCH_SIZE,
+                recommendedBatchSize: Math.min(25, BATCH_SIZE / 2),
+              });
+            }
+
+            // Continue with next batch instead of failing entirely
+            continue;
+          }
         }
 
-        logger.info("API transmission completed successfully", {
+        // Summary logging
+        logger.info("API transmission batching completed", {
           date,
-          response: response,
-          recordsSent: alertData.length,
-          payloadSize: JSON.stringify(apiPayload).length,
+          totalBatches,
+          successfulBatches,
+          failedBatches,
+          totalRecordsSent,
+          totalRecords: alertData.length,
+          successRate: `${Math.round((successfulBatches / totalBatches) * 100)}%`,
           mappingName: process.env.MAPPING_NAME,
         });
+
+        // Log warning if some batches failed
+        if (failedBatches > 0) {
+          logger.warn("Some batches failed during API transmission", {
+            date,
+            failedBatches,
+            totalBatches,
+            recordsNotSent: alertData.length - totalRecordsSent,
+          });
+        }
       } catch (error) {
         logger.error("API transmission failed", {
           date,
