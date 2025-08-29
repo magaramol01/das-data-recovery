@@ -1,5 +1,5 @@
-const axios = require('axios');
-const logger = require('../config/logger');
+const axios = require("axios");
+const logger = require("../config/logger");
 
 /**
  * HttpService
@@ -24,16 +24,16 @@ class HttpService {
     this.client = axios.create({
       timeout: this.timeout,
       headers: {
-        'Content-Type': 'application/json',
-        'tenant-id': this.tenantId
-      }
+        "Content-Type": "application/json",
+        "x-tenant-id": this.tenantId,
+      },
     });
 
+    // Add request interceptor to ensure consistent headers
+    this.client.interceptors.request.use(this.handleRequest.bind(this), (error) => Promise.reject(error));
+
     // Add response interceptor for logging
-    this.client.interceptors.response.use(
-      this.handleResponse.bind(this),
-      this.handleError.bind(this)
-    );
+    this.client.interceptors.response.use(this.handleResponse.bind(this), this.handleError.bind(this));
   }
 
   /**
@@ -48,33 +48,31 @@ class HttpService {
 
     while (attempt <= this.maxRetries) {
       try {
-        logger.debug('Sending data to endpoint', {
+        logger.debug("Sending data to endpoint", {
           requestId,
           attempt,
           endpoint: this.endpoint,
           dataSize: JSON.stringify(data).length,
           headers: {
             ...this.client.defaults.headers,
-            'X-Request-ID': requestId,
-            'request-id': requestId,
-            ...options.headers
-          }
+            "x-request-id": requestId,
+            ...options.headers,
+          },
         });
 
         const response = await this.client.post(this.endpoint, data, {
           ...options,
           headers: {
             ...this.client.defaults.headers,
-            'X-Request-ID': requestId,
-            'request-id': requestId,
-            ...options.headers
-          }
+            "x-request-id": requestId,
+            ...options.headers,
+          },
         });
 
-        logger.info('Data sent successfully', {
+        logger.info("Data sent successfully", {
           requestId,
           attempt,
-          statusCode: response.status
+          statusCode: response.status,
         });
 
         return response.data;
@@ -84,11 +82,11 @@ class HttpService {
         }
 
         const delay = this.calculateRetryDelay(attempt);
-        logger.warn('Retrying failed request', {
+        logger.warn("Retrying failed request", {
           requestId,
           attempt,
           nextAttemptDelay: delay,
-          error: error.message
+          error: error.message,
         });
 
         await this.sleep(delay);
@@ -112,29 +110,29 @@ class HttpService {
         const result = await this.sendData(item, options);
         results.push({ index, success: true, data: result });
       } catch (error) {
-        logger.error('Error sending batch item', {
+        logger.error("Error sending batch item", {
           index,
           error: error.message,
-          stack: error.stack
+          stack: error.stack,
         });
 
         errors.push({
           index,
           success: false,
           error: error.message,
-          item
+          item,
         });
       }
     }
 
-    logger.info('Batch processing completed', {
+    logger.info("Batch processing completed", {
       total: batch.length,
       successful: results.length,
-      failed: errors.length
+      failed: errors.length,
     });
 
     if (errors.length > 0) {
-      logger.warn('Some batch items failed', { errors });
+      logger.warn("Some batch items failed", { errors });
     }
 
     return {
@@ -143,9 +141,38 @@ class HttpService {
       summary: {
         total: batch.length,
         successful: results.length,
-        failed: errors.length
-      }
+        failed: errors.length,
+      },
     };
+  }
+
+  /**
+   * Handle request before sending
+   * @private
+   * @param {Object} config - Request configuration
+   * @returns {Object} Modified configuration
+   */
+  handleRequest(config) {
+    // Ensure x-tenant-id is always present
+    if (this.tenantId && !config.headers["x-tenant-id"]) {
+      config.headers["x-tenant-id"] = this.tenantId;
+    }
+
+    // Generate and add x-request-id if not present
+    if (!config.headers["x-request-id"]) {
+      config.headers["x-request-id"] = this.generateRequestId();
+    }
+
+    logger.debug("Outgoing request", {
+      method: config.method?.toUpperCase(),
+      url: config.url,
+      headers: {
+        "x-tenant-id": config.headers["x-tenant-id"],
+        "x-request-id": config.headers["x-request-id"],
+      },
+    });
+
+    return config;
   }
 
   /**
@@ -155,11 +182,11 @@ class HttpService {
    * @returns {Object} Response data
    */
   handleResponse(response) {
-    logger.debug('Received response', {
+    logger.debug("Received response", {
       status: response.status,
       url: response.config.url,
       method: response.config.method,
-      duration: response.duration
+      duration: response.duration,
     });
     return response;
   }
@@ -174,7 +201,7 @@ class HttpService {
     const errorInfo = {
       message: error.message,
       code: error.code,
-      stack: error.stack
+      stack: error.stack,
     };
 
     if (error.response) {
@@ -186,11 +213,11 @@ class HttpService {
       // Request was made but no response received
       errorInfo.request = {
         method: error.request.method,
-        path: error.request.path
+        path: error.request.path,
       };
     }
 
-    logger.error('HTTP request failed', errorInfo);
+    logger.error("HTTP request failed", errorInfo);
     return Promise.reject(error);
   }
 
@@ -219,7 +246,7 @@ class HttpService {
    * @returns {Promise<void>}
    */
   sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 
