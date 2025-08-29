@@ -141,7 +141,7 @@ class Application {
 
           try {
             // Clean the output directory after processing each date
-            await this.fileProcessor.cleanOutputDirectory();
+            // await this.fileProcessor.cleanOutputDirectory();
 
             // Clear processed data from database to free up space
             const recordsDeleted = await this.dataProcessor.clearAllData();
@@ -256,11 +256,16 @@ class Application {
       const copiedFile = copiedFiles[i];
       const fileExt = path.extname(copiedFile).toLowerCase();
 
-      if (fileExt === ".zip") {
+      // Check if file is actually a ZIP archive (including .gzip files that are ZIP archives)
+      const isZipArchive =
+        fileExt === ".zip" || (fileExt === ".gzip" && (await this.fileProcessor.isZipFile(copiedFile)));
+
+      if (isZipArchive) {
         try {
           logger.info("Extracting ZIP file", {
             file: path.basename(copiedFile),
             progress: `${i + 1}/${copiedFiles.length}`,
+            actualType: fileExt === ".zip" ? "ZIP" : "ZIP-as-GZIP",
             date,
           });
 
@@ -281,7 +286,7 @@ class Application {
 
     logger.info("ZIP extraction completed", {
       date,
-      totalZipFiles: copiedFiles.filter((f) => path.extname(f).toLowerCase() === ".zip").length,
+      totalZipFiles: extractedDirs.length,
       extractedDirs: extractedDirs.length,
       extractedDirNames: extractedDirs.map((d) => path.basename(d)),
     });
@@ -341,8 +346,8 @@ class Application {
     // Step 4: Data Aggregation and API Preparation
     logger.info("Starting data aggregation", { date });
 
-    const startTime = process.env.FROM
-    const endTime =  process.env.TO
+    const startTime = process.env.FROM;
+    const endTime = process.env.TO;
 
     try {
       const aggregatedData = await this.dataProcessor.aggregateData(startTime, endTime);
@@ -681,8 +686,8 @@ const main = async () => {
     // Print environment configuration table at startup
     printEnvironmentTable();
 
-    const fromDate = process.env.FROM.split(' ')[0];
-    const toDate = process.env.TO.split(' ')[0];
+    const fromDate = process.env.FROM.split(" ")[0];
+    const toDate = process.env.TO.split(" ")[0];
 
     if (!fromDate || !toDate) {
       throw new Error("FROM and TO dates are required");

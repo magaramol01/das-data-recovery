@@ -134,9 +134,12 @@ class FileProcessor {
       const fileExt = path.extname(fileName).toLowerCase();
       const processingStartTime = Date.now();
 
-      // Process based on file type
+      // Check if it's actually a ZIP file (many .gzip files are actually ZIP archives)
+      const isZipFile = await this.isZipFile(filePath);
+
+      // Process based on actual file type
       let processedPath;
-      if (fileExt === ".zip") {
+      if (isZipFile || fileExt === ".zip") {
         processedPath = await this.processZipFile(filePath);
       } else if (fileExt === ".csv") {
         processedPath = await this.processCsvFile(filePath);
@@ -153,6 +156,7 @@ class FileProcessor {
         destination: processedPath,
         size: stats.size,
         processingTime,
+        actualType: isZipFile ? "ZIP" : fileExt.toUpperCase(),
       });
 
       // Original file is kept in place, no archiving needed
@@ -164,6 +168,35 @@ class FileProcessor {
         stack: error.stack,
       });
       throw error;
+    }
+  }
+
+  /**
+   * Check if a file is actually a ZIP file by reading its header
+   * @param {string} filePath - Path to the file
+   * @returns {Promise<boolean>} True if the file is a ZIP file
+   */
+  async isZipFile(filePath) {
+    try {
+      const readStream = fs.createReadStream(filePath, { start: 0, end: 3 });
+      const buffer = await new Promise((resolve, reject) => {
+        const chunks = [];
+        readStream.on("data", (chunk) => chunks.push(chunk));
+        readStream.on("end", () => resolve(Buffer.concat(chunks)));
+        readStream.on("error", reject);
+      });
+
+      if (buffer.length < 4) {
+        return false;
+      }
+
+      // Check for ZIP file signature (PK\x03\x04 or PK\x05\x06 or PK\x07\x08)
+      return (
+        buffer[0] === 0x50 && buffer[1] === 0x4b && (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07)
+      );
+    } catch (error) {
+      logger.debug("Error checking file type", { path: filePath, error: error.message });
+      return false;
     }
   }
 
@@ -205,8 +238,15 @@ class FileProcessor {
     const writeStream = fs.createWriteStream(targetPath);
     const gunzipStream = zlib.createGunzip();
 
-    await pipeline(readStream, gunzipStream, writeStream);
-    return targetPath;
+    return new Promise((resolve, reject) => {
+      pipeline(readStream, gunzipStream, writeStream, (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(targetPath);
+        }
+      });
+    });
   }
 
   /**
@@ -322,8 +362,9 @@ class FileProcessor {
    */
   async extractZipToOutput(zipFilePath) {
     try {
-      // Create subdirectory for extraction
-      const zipName = path.basename(zipFilePath, ".zip");
+      // Create subdirectory for extraction - handle both .zip and .gzip extensions
+      const fileName = path.basename(zipFilePath);
+      const zipName = fileName.replace(/\.(zip|gzip)$/i, "");
       const extractDir = path.resolve(this.outputDir, zipName);
       await fs.ensureDir(extractDir);
 
