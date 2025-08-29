@@ -63,7 +63,7 @@ class SqliteAdapter {
       // Enable foreign keys
       await this.db.run("PRAGMA foreign_keys = ON");
 
-      // Performance optimizations
+      // Performance and concurrency optimizations
       await this.db.run("PRAGMA journal_mode = WAL"); // Write-Ahead Logging for better concurrency
       await this.db.run("PRAGMA synchronous = NORMAL"); // Reduce sync overhead
       await this.db.run("PRAGMA cache_size = -64000"); // 64MB cache (negative = KB)
@@ -71,6 +71,8 @@ class SqliteAdapter {
       await this.db.run("PRAGMA mmap_size = 268435456"); // 256MB memory-mapped I/O
       await this.db.run("PRAGMA page_size = 4096"); // Optimal page size
       await this.db.run("PRAGMA auto_vacuum = INCREMENTAL"); // Incremental vacuum
+      await this.db.run("PRAGMA busy_timeout = 30000"); // 30 second timeout for locks
+      await this.db.run("PRAGMA wal_autocheckpoint = 1000"); // Checkpoint WAL after 1000 pages
 
       this.isConnected = true;
       logger.info("Successfully connected to SQLite database with performance optimizations", { path: this.dbPath });
@@ -181,82 +183,77 @@ class SqliteAdapter {
   }
 
   /**
-   * Begin a transaction
-   * @returns {Promise<void>}
+   * Retry database operation with exponential backoff
+   * @param {Function} operation - The database operation to retry
+   * @param {number} maxRetries - Maximum number of retry attempts
+   * @param {number} baseDelay - Base delay in milliseconds
+   * @returns {Promise<any>} - Result of the operation
    */
-  async beginTransaction() {
-    try {
-      await this.ensureConnection();
-      const startTime = Date.now();
-      const result = await this.db.run("BEGIN EXCLUSIVE TRANSACTION");
-      const duration = Date.now() - startTime;
+  async retryOperation(operation, maxRetries = 5, baseDelay = 100) {
+    let lastError;
 
-      logger.debug("Transaction started", {
-        result,
-        duration,
-      });
-    } catch (error) {
-      logger.error("Failed to start transaction", {
-        error: error.message,
-        stack: error.stack,
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Commit a transaction
-   * @returns {Promise<void>}
-   */
-  async commit() {
-    try {
-      const startTime = Date.now();
-      await this.db.run("COMMIT");
-      const duration = Date.now() - startTime;
-
-      logger.debug("Transaction committed", {
-        duration,
-      });
-    } catch (error) {
-      logger.error("Failed to commit transaction", {
-        error: error.message,
-        stack: error.stack,
-      });
-
-      // Try to rollback if commit fails
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await this.rollback();
-      } catch (rollbackError) {
-        logger.error("Failed to rollback after commit failure", {
-          error: rollbackError.message,
-          stack: rollbackError.stack,
-        });
-      }
+        return await operation();
+      } catch (error) {
+        lastError = error;
 
-      throw error;
+        // Only retry on SQLITE_BUSY errors
+        if (error.code === "SQLITE_BUSY" && attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 100;
+          logger.warn(`Database busy, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
+          await this.sleep(delay);
+          continue;
+        }
+
+        // Re-throw for other errors or max retries exceeded
+        throw error;
+      }
     }
+
+    throw lastError;
   }
 
   /**
-   * Rollback a transaction
+   * Sleep for specified milliseconds
+   * @param {number} ms - Milliseconds to sleep
+   */
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Begin a database transaction with retry logic
+   * @param {string} mode - Transaction mode ('DEFERRED', 'IMMEDIATE', 'EXCLUSIVE')
    * @returns {Promise<void>}
    */
-  async rollback() {
-    try {
-      const startTime = Date.now();
-      await this.db.run("ROLLBACK");
-      const duration = Date.now() - startTime;
+  async beginTransaction(mode = "IMMEDIATE") {
+    return this.retryOperation(async () => {
+      await this.db.run(`BEGIN ${mode} TRANSACTION`);
+      logger.debug(`Started ${mode} transaction`);
+    });
+  }
 
-      logger.debug("Transaction rolled back", {
-        duration,
-      });
-    } catch (error) {
-      logger.error("Failed to rollback transaction", {
-        error: error.message,
-        stack: error.stack,
-      });
-      throw error;
-    }
+  /**
+   * Commit a database transaction with retry logic
+   * @returns {Promise<void>}
+   */
+  async commitTransaction() {
+    return this.retryOperation(async () => {
+      await this.db.run("COMMIT");
+      logger.debug("Committed transaction");
+    });
+  }
+
+  /**
+   * Rollback a database transaction with retry logic
+   * @returns {Promise<void>}
+   */
+  async rollbackTransaction() {
+    return this.retryOperation(async () => {
+      await this.db.run("ROLLBACK");
+      logger.debug("Rolled back transaction");
+    });
   }
 
   /**
@@ -302,7 +299,7 @@ class SqliteAdapter {
       return 0;
     }
 
-    try {
+    return this.retryOperation(async () => {
       await this.ensureConnection();
       const startTime = Date.now();
 
@@ -314,8 +311,8 @@ class SqliteAdapter {
 
       let insertedCount = 0;
 
-      // Use a single transaction for all inserts
-      await this.beginTransaction();
+      // Use IMMEDIATE transaction for better concurrency
+      await this.beginTransaction("IMMEDIATE");
 
       try {
         for (const record of records) {
@@ -323,7 +320,7 @@ class SqliteAdapter {
           insertedCount++;
         }
 
-        await this.commit();
+        await this.commitTransaction();
         await stmt.finalize();
 
         const duration = Date.now() - startTime;
@@ -336,24 +333,16 @@ class SqliteAdapter {
 
         return insertedCount;
       } catch (error) {
-        await this.rollback();
+        await this.rollbackTransaction();
         await stmt.finalize();
         throw error;
       }
-    } catch (error) {
-      logger.error("Bulk insert failed", {
-        error: error.message,
-        table,
-        recordCount: records?.length || 0,
-        stack: error.stack,
-      });
-      throw error;
-    }
+    });
   }
 
   /**
    * Batch insert records using single INSERT statement with multiple VALUES
-   * Most efficient for large datasets
+   * Most efficient for large datasets with improved concurrency handling
    * @param {string} table - Table name
    * @param {Array} columns - Column names
    * @param {Array} records - Array of record arrays
@@ -365,12 +354,13 @@ class SqliteAdapter {
       return 0;
     }
 
-    try {
+    return this.retryOperation(async () => {
       await this.ensureConnection();
       const startTime = Date.now();
       let totalInserted = 0;
 
-      await this.beginTransaction();
+      // Use IMMEDIATE transaction for better concurrency than EXCLUSIVE
+      await this.beginTransaction("IMMEDIATE");
 
       try {
         // Process records in batches
@@ -396,7 +386,7 @@ class SqliteAdapter {
           }
         }
 
-        await this.commit();
+        await this.commitTransaction();
 
         const duration = Date.now() - startTime;
         logger.info("Batch insert completed successfully", {
@@ -409,19 +399,10 @@ class SqliteAdapter {
 
         return totalInserted;
       } catch (error) {
-        await this.rollback();
+        await this.rollbackTransaction();
         throw error;
       }
-    } catch (error) {
-      logger.error("Batch insert failed", {
-        error: error.message,
-        table,
-        recordCount: records?.length || 0,
-        batchSize,
-        stack: error.stack,
-      });
-      throw error;
-    }
+    });
   }
 }
 
