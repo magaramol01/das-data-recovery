@@ -82,7 +82,7 @@ const structuredFormat = winston.format.combine(
   winston.format.errors({ stack: true }),
   winston.format.printf(({ level, message, timestamp, serviceName, tenantId, mappingName, batchDate, ...meta }) => {
     const metaString = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : "";
-    return `[${serviceName}] : [${tenantId}] : [${mappingName}] : [${batchDate}] : [${level.toUpperCase()}] : ${message}${metaString}`;
+    return `[${timestamp}] [${serviceName}] : [${tenantId}] : [${mappingName}] : [${batchDate}] : [${level.toUpperCase()}] : ${message}${metaString}`;
   })
 );
 
@@ -98,6 +98,7 @@ const colorizedConsoleFormat = winston.format.combine(
   winston.format.printf(({ level, message, timestamp, serviceName, tenantId, mappingName, batchDate, ...meta }) => {
     // Color codes
     const colors = {
+      timestamp: "\x1b[90m", // Gray
       serviceName: "\x1b[35m", // Magenta
       tenantId: "\x1b[36m", // Cyan
       mappingName: "\x1b[33m", // Yellow
@@ -112,11 +113,11 @@ const colorizedConsoleFormat = winston.format.combine(
     const levelColor = colors[level.toLowerCase()] || colors.info;
     const metaString = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : "";
 
-    return `${colors.serviceName}[${serviceName}]${colors.reset} : ${colors.tenantId}[${tenantId}]${colors.reset} : ${
-      colors.mappingName
-    }[${mappingName}]${colors.reset} : ${colors.batchDate}[${batchDate}]${
-      colors.reset
-    } : ${levelColor}[${level.toUpperCase()}]${colors.reset} : ${message}${metaString}`;
+    return `${colors.timestamp}[${timestamp}]${colors.reset} ${colors.serviceName}[${serviceName}]${colors.reset} : ${
+      colors.tenantId
+    }[${tenantId}]${colors.reset} : ${colors.mappingName}[${mappingName}]${colors.reset} : ${
+      colors.batchDate
+    }[${batchDate}]${colors.reset} : ${levelColor}[${level.toUpperCase()}]${colors.reset} : ${message}${metaString}`;
   })
 );
 

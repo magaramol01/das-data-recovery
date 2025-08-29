@@ -13,6 +13,36 @@ const { ENVIRONMENT, BATCH_SIZES, ERROR_MESSAGES } = require("./constants");
 const logger = baseLogger.withService("Application");
 
 /**
+ * Print environment configuration in table format
+ */
+function printEnvironmentTable() {
+  const envConfig = {
+    Application: process.env.SERVICE_NAME || "das-data-recovery",
+    Environment: process.env.NODE_ENV || "development",
+    "Tenant ID": process.env.TENANT_ID || "N/A",
+    "Mapping Name": process.env.MAPPING_NAME || "N/A",
+    "Working Directory": process.env.WORKING_DIR || "N/A",
+    "Output Directory": process.env.OUTPUT_DIR || "N/A",
+    "Database Path": process.env.DB_PATH || "N/A",
+    "API Endpoint": process.env.API_ENDPOINT || "N/A",
+    "From Date": process.env.FROM || "N/A",
+    "To Date": process.env.TO || "N/A",
+  };
+
+  console.log("\n╭─────────────────────────────────────────────────────────────╮");
+  console.log("│                    ENVIRONMENT CONFIGURATION                   │");
+  console.log("├─────────────────────────────────────────────────────────────┤");
+
+  Object.entries(envConfig).forEach(([key, value]) => {
+    const paddedKey = key.padEnd(18);
+    const paddedValue = value.toString().padEnd(40);
+    console.log(`│ ${paddedKey} │ ${paddedValue} │`);
+  });
+
+  console.log("╰─────────────────────────────────────────────────────────────╯\n");
+}
+
+/**
  * Main application class
  * Orchestrates the data recovery and processing workflow
  */
@@ -324,26 +354,23 @@ class Application {
         timeRange: `${startTime} to ${endTime}`,
       });
 
-      // Console output for review
-      console.log("\n=== AGGREGATED DATA READY FOR TRANSMISSION ===");
-      console.log(`Date: ${date}`);
-      console.log(`Total time periods: ${aggregatedData.length}`);
-      console.log(`Data range: ${startTime} to ${endTime}`);
-      console.log("\nSample aggregated data (first 3 records):");
-
-      aggregatedData.slice(0, 3).forEach((record, index) => {
-        console.log(`\n--- Record ${index + 1} ---`);
-        console.log(`Timestamp: ${record.timestamp}`);
-        console.log(`Record Count: ${record.recordCount}`);
-        console.log(`Sample Tags: ${Object.keys(record.data).slice(0, 5).join(", ")}...`);
-        console.log(`Total Tags: ${Object.keys(record.data).length}`);
+      // Debug logging for aggregated data details
+      logger.debug("Aggregated data ready for transmission", {
+        date,
+        totalTimePeriods: aggregatedData.length,
+        dateRange: `${startTime} to ${endTime}`,
+        sampleRecords: aggregatedData.slice(0, 3).map((record, index) => ({
+          recordNumber: index + 1,
+          timestamp: record.timestamp,
+          recordCount: record.recordCount,
+          sampleTags: Object.keys(record.data).slice(0, 5),
+          totalTags: Object.keys(record.data).length,
+        })),
+        hasMoreRecords: aggregatedData.length > 3,
+        totalRecords: aggregatedData.length,
       });
 
-      if (aggregatedData.length > 3) {
-        console.log(`\n... and ${aggregatedData.length - 3} more records`);
-      }
-
-      console.log("\n=== END AGGREGATED DATA ===\n");
+      // Remaining single end marker (replaced detailed output with debug logging above)
 
       // Step 5: Send aggregated data to API
       logger.info("Starting API data transmission", {
@@ -368,16 +395,10 @@ class Application {
         if (!alertData || alertData.length === 0) {
           logger.info("Skipping API transmission: No AlertData to send", {
             date,
+            mappingName: process.env.MAPPING_NAME,
             aggregatedRecords: aggregatedData.length,
             alertDataLength: alertData ? alertData.length : 0,
           });
-
-          console.log("\n=== API TRANSMISSION SKIPPED ===");
-          console.log(`Date: ${date}`);
-          console.log(`Mapping: ${process.env.MAPPING_NAME}`);
-          console.log(`Reason: No AlertData to send`);
-          console.log(`Aggregated records: ${aggregatedData.length}`);
-          console.log("=== END API TRANSMISSION ===\n");
 
           return;
         }
@@ -652,12 +673,14 @@ class Application {
         toDate,
       });
 
-      console.log("\n=== ARCHIVE AND CLEANUP COMPLETED ===");
-      console.log(`Archive created: ${path.basename(archivePath)}`);
-      console.log(`Archive location: ${path.dirname(archivePath)}`);
-      console.log(`Output directory cleaned: ${this.fileProcessor.outputDir}`);
-      console.log(`Database records deleted: ${recordsDeleted}`);
-      console.log("=== END ARCHIVE AND CLEANUP ===\n");
+      logger.info("Archive and cleanup completed successfully", {
+        archiveName: path.basename(archivePath),
+        archiveLocation: path.dirname(archivePath),
+        outputDirectoryCleaned: this.fileProcessor.outputDir,
+        recordsDeleted,
+        fromDate,
+        toDate,
+      });
 
       return {
         archivePath,
@@ -681,6 +704,9 @@ const app = new Application();
 // Handle the main process
 const main = async () => {
   try {
+    // Print environment configuration table at startup
+    printEnvironmentTable();
+
     const fromDate = process.env.FROM;
     const toDate = process.env.TO;
 
