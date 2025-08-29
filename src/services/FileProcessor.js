@@ -1,6 +1,7 @@
 const path = require("path");
 const fs = require("fs-extra");
 const { promisify } = require("util");
+const { pipeline } = require("stream");
 const glob = require("glob");
 const extract = require("extract-zip");
 const archiver = require("archiver");
@@ -173,7 +174,7 @@ class FileProcessor {
    * @returns {Promise<string>} Path to the extracted directory
    */
   async processZipFile(filePath) {
-    const extractDir = path.join(this.outputDir, path.basename(filePath, ".zip"));
+    const extractDir = path.resolve(this.outputDir, path.basename(filePath, ".zip"));
     await fs.ensureDir(extractDir);
     await extract(filePath, { dir: extractDir });
     return extractDir;
@@ -186,7 +187,7 @@ class FileProcessor {
    * @returns {Promise<string>} Path to the processed file
    */
   async processCsvFile(filePath) {
-    const targetPath = path.join(this.outputDir, path.basename(filePath));
+    const targetPath = path.resolve(this.outputDir, path.basename(filePath));
     await fs.copy(filePath, targetPath);
     return targetPath;
   }
@@ -198,7 +199,7 @@ class FileProcessor {
    * @returns {Promise<string>} Path to the decompressed file
    */
   async processGzipFile(filePath) {
-    const targetPath = path.join(this.outputDir, path.basename(filePath).replace(/\.gz$|\.gzip$/, ""));
+    const targetPath = path.resolve(this.outputDir, path.basename(filePath).replace(/\.gz$|\.gzip$/, ""));
 
     const readStream = fs.createReadStream(filePath);
     const writeStream = fs.createWriteStream(targetPath);
@@ -216,7 +217,7 @@ class FileProcessor {
    */
   async archiveFile(filePath) {
     try {
-      const archivePath = path.join(this.archiveDir, path.basename(filePath));
+      const archivePath = path.resolve(this.archiveDir, path.basename(filePath));
 
       await fs.move(filePath, archivePath, { overwrite: true });
 
@@ -246,7 +247,7 @@ class FileProcessor {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
 
-      const files = glob.sync("*", { cwd: this.outputDir }).map((match) => path.join(this.outputDir, match));
+      const files = glob.sync("*", { cwd: this.outputDir }).map((match) => path.resolve(this.outputDir, match));
 
       for (const file of files) {
         const stats = await fs.stat(file);
@@ -280,7 +281,18 @@ class FileProcessor {
       }
 
       const fileName = path.basename(filePath);
-      const outputPath = path.join(this.outputDir, fileName);
+      let outputPath = path.resolve(this.outputDir, fileName);
+
+      // Handle duplicate filenames by adding a counter
+      let counter = 1;
+      const fileExt = path.extname(fileName);
+      const baseName = path.basename(fileName, fileExt);
+
+      while (await fs.pathExists(outputPath)) {
+        const newFileName = `${baseName}_${counter}${fileExt}`;
+        outputPath = path.resolve(this.outputDir, newFileName);
+        counter++;
+      }
 
       // Copy file to output directory
       await fs.copy(filePath, outputPath);
@@ -289,6 +301,7 @@ class FileProcessor {
         source: filePath,
         destination: outputPath,
         size: stats.size,
+        isDuplicate: counter > 1,
       });
 
       return outputPath;
@@ -311,7 +324,7 @@ class FileProcessor {
     try {
       // Create subdirectory for extraction
       const zipName = path.basename(zipFilePath, ".zip");
-      const extractDir = path.join(this.outputDir, zipName);
+      const extractDir = path.resolve(this.outputDir, zipName);
       await fs.ensureDir(extractDir);
 
       // Extract ZIP to subdirectory
@@ -347,7 +360,7 @@ class FileProcessor {
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
       const archiveName = `data-recovery_${fromDate}_to_${toDate}_${timestamp}.zip`;
-      const archivePath = path.join(this.archiveDir, archiveName);
+      const archivePath = path.resolve(this.archiveDir, archiveName);
 
       logger.info("Starting archive creation", {
         outputDir: this.outputDir,
@@ -422,7 +435,7 @@ class FileProcessor {
       const items = await fs.readdir(this.outputDir);
 
       for (const item of items) {
-        const itemPath = path.join(this.outputDir, item);
+        const itemPath = path.resolve(this.outputDir, item);
         await fs.remove(itemPath);
         logger.debug("Removed output item", { path: itemPath });
       }
