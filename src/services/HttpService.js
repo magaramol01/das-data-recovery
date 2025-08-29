@@ -37,12 +37,60 @@ class HttpService {
   }
 
   /**
+   * Validate data before sending
+   * @private
+   * @param {Object} data - Data to validate
+   * @returns {boolean} True if data is valid
+   */
+  validateData(data) {
+    // Check if data is null, undefined, or empty object
+    if (!data || typeof data !== "object" || Object.keys(data).length === 0) {
+      logger.warn("Data validation failed: Data is null, undefined, or empty object");
+      return false;
+    }
+
+    // Check if data contains any mapping with AlertData
+    const mappingKeys = Object.keys(data);
+    for (const key of mappingKeys) {
+      const mapping = data[key];
+      if (mapping && typeof mapping === "object" && mapping.AlertData) {
+        // Check if AlertData exists and is a non-empty array
+        if (Array.isArray(mapping.AlertData) && mapping.AlertData.length > 0) {
+          return true;
+        }
+        logger.warn("Data validation failed: AlertData is empty or not an array", {
+          mappingKey: key,
+          alertDataType: typeof mapping.AlertData,
+          alertDataLength: Array.isArray(mapping.AlertData) ? mapping.AlertData.length : "N/A",
+        });
+        return false;
+      }
+    }
+
+    logger.warn("Data validation failed: No AlertData found in any mapping", {
+      mappingKeys: mappingKeys,
+    });
+    return false;
+  }
+
+  /**
    * Send data to the endpoint
    * @param {Object} data - Data to send
    * @param {Object} options - Additional options
    * @returns {Promise<Object>} Response from the endpoint
    */
   async sendData(data, options = {}) {
+    // Validate data before sending
+    if (!this.validateData(data)) {
+      logger.info("Skipping HTTP request: Data validation failed");
+      return {
+        success: true,
+        skipped: true,
+        reason: "AlertData is missing or empty",
+        message: "Request was not sent because AlertData is missing or empty",
+      };
+    }
+
     const requestId = this.generateRequestId();
     let attempt = 1;
 
@@ -104,11 +152,24 @@ class HttpService {
   async sendBatch(batch, options = {}) {
     const results = [];
     const errors = [];
+    let skipped = 0;
 
     for (const [index, item] of batch.entries()) {
       try {
         const result = await this.sendData(item, options);
-        results.push({ index, success: true, data: result });
+
+        if (result.skipped) {
+          skipped++;
+          results.push({
+            index,
+            success: true,
+            skipped: true,
+            data: result,
+            reason: result.reason,
+          });
+        } else {
+          results.push({ index, success: true, data: result });
+        }
       } catch (error) {
         logger.error("Error sending batch item", {
           index,
@@ -129,10 +190,15 @@ class HttpService {
       total: batch.length,
       successful: results.length,
       failed: errors.length,
+      skipped: skipped,
     });
 
     if (errors.length > 0) {
       logger.warn("Some batch items failed", { errors });
+    }
+
+    if (skipped > 0) {
+      logger.info("Some batch items were skipped due to empty AlertData", { skipped });
     }
 
     return {
@@ -142,6 +208,7 @@ class HttpService {
         total: batch.length,
         successful: results.length,
         failed: errors.length,
+        skipped: skipped,
       },
     };
   }
