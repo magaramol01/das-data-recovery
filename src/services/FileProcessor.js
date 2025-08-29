@@ -62,16 +62,50 @@ class FileProcessor {
    */
   async findFilesForDate(searchDate) {
     try {
-      const pattern = `*${searchDate}*.{zip,csv,gz,gzip}`;
-      const files = glob.sync(pattern, { cwd: this.workingDir }).map((match) => path.join(this.workingDir, match));
+      let allFiles = [];
+
+      // Search for each extension separately to avoid glob pattern issues
+      // Using recursive pattern to search in all subdirectories
+      for (const ext of this.supportedExtensions) {
+        const pattern = `**/*${searchDate}*${ext}`;
+        try {
+          const files = glob.sync(pattern, {
+            cwd: this.workingDir,
+            nocase: true, // Case insensitive matching
+            dot: false, // Don't match hidden files
+            nonull: false, // Don't return pattern if no match
+          });
+
+          const fullPaths = files.map((match) => path.join(this.workingDir, match));
+          allFiles = allFiles.concat(fullPaths);
+
+          if (files.length > 0) {
+            logger.debug(`Found ${files.length} files with extension ${ext}`, {
+              files: files,
+              pattern,
+            });
+          }
+        } catch (extError) {
+          logger.warn(`Error searching for ${ext} files`, {
+            extension: ext,
+            pattern,
+            error: extError.message,
+          });
+        }
+      }
+
+      // Remove duplicates (in case of overlapping patterns)
+      const uniqueFiles = [...new Set(allFiles)];
 
       logger.info("Found files for date", {
         date: searchDate,
-        count: files.length,
-        pattern,
+        count: uniqueFiles.length,
+        extensions: this.supportedExtensions,
+        files: uniqueFiles.map((f) => path.basename(f)),
+        directories: uniqueFiles.map((f) => path.dirname(f)).filter((dir, index, arr) => arr.indexOf(dir) === index),
       });
 
-      return files;
+      return uniqueFiles;
     } catch (error) {
       logger.error("Error finding files", {
         date: searchDate,
