@@ -428,14 +428,6 @@ class Application {
             message: response.message,
             alertRecords: alertData.length,
           });
-
-          console.log("\n=== API TRANSMISSION SKIPPED ===");
-          console.log(`Date: ${date}`);
-          console.log(`Mapping: ${process.env.MAPPING_NAME}`);
-          console.log(`Alert Records: ${alertData.length}`);
-          console.log(`Reason: ${response.reason}`);
-          console.log(`Message: ${response.message}`);
-          console.log("=== END API TRANSMISSION ===\n");
           return;
         }
 
@@ -446,14 +438,6 @@ class Application {
           payloadSize: JSON.stringify(apiPayload).length,
           mappingName: process.env.MAPPING_NAME,
         });
-
-        console.log("\n=== API TRANSMISSION SUCCESS ===");
-        console.log(`Date: ${date}`);
-        console.log(`Mapping: ${process.env.MAPPING_NAME}`);
-        console.log(`Alert Records sent: ${alertData.length}`);
-        console.log(`Endpoint: ${process.env.API_ENDPOINT}`);
-        console.log(`Response status: Success`);
-        console.log("=== END API TRANSMISSION ===\n");
       } catch (error) {
         logger.error("API transmission failed", {
           date,
@@ -463,15 +447,6 @@ class Application {
           recordsCount: alertData ? alertData.length : aggregatedData.length,
           mappingName: process.env.MAPPING_NAME,
         });
-
-        console.log("\n=== API TRANSMISSION FAILED ===");
-        console.log(`Date: ${date}`);
-        console.log(`Mapping: ${process.env.MAPPING_NAME}`);
-        console.log(`Alert Records attempted: ${alertData ? alertData.length : aggregatedData.length}`);
-        console.log(`Endpoint: ${process.env.API_ENDPOINT}`);
-        console.log(`Error: ${error.message}`);
-        console.log("=== END API TRANSMISSION ===\n");
-
         // Don't throw error - log and continue
       }
 
